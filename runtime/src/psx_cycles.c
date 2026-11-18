@@ -293,7 +293,11 @@ static void psx_cycle_sample_check(uint64_t target) {
         return;
     }
     if (target < s_next_cycle_sample) return;
-    uint64_t n = (target - s_next_cycle_sample) / period + 1u;
+    /* Almost every crossing overshoots by less than one period: n = 1 without
+     * a 64-bit division, which 32-bit hosts (the 3DS) make a library call on
+     * this hot path. Long jumps (idle skip, stalls) still divide. */
+    const uint64_t over = target - s_next_cycle_sample;
+    uint64_t n = over < period ? 1u : over / period + 1u;
     s_next_cycle_sample += n * (uint64_t)period;
     psx_cycle_sample_hook(target, n > 0xFFFFFFFFull ? 0xFFFFFFFFu : (uint32_t)n);
 }
