@@ -25,6 +25,7 @@
  * guest seconds of history. Query with the gcp_ring debug command. */
 
 #include "guest_cycle_profile.h"
+#include "psx_diag_capacity.h"
 #include "psx_bss.h"
 #include "psx_cycles.h"
 
@@ -44,7 +45,7 @@ extern int psx_get_in_exception(void);
 extern uint32_t psx_cycle_sample_period;
 extern void (*psx_cycle_sample_hook)(uint64_t cycle, uint32_t periods);
 
-#define GCP_CAP (1u << 19)
+#define GCP_CAP PSX_DIAG_CAP((1u << 19))
 
 static PSX_BSS GcpSample s_gcp[GCP_CAP];
 static uint64_t s_gcp_total = 0;

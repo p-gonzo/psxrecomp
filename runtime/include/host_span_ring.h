@@ -22,6 +22,7 @@
  * Reading: TCP "host_span_ring" / "frame_wall_ring"; a title's hitch report
  * tool joins them (LegendOfDragoonRecomp tools/lod_hitch_report.py). */
 #include <stdint.h>
+#include "psx_diag_capacity.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -71,7 +72,7 @@ int host_span_get(uint64_t seq, HostSpan *out);
 const char *host_span_kind_name(unsigned kind);
 /* 65536 spans; spans shorter than HOST_SPAN_MIN_US are not recorded (the per-frame
  * tick wrappers would otherwise flood the ring; a hitch is milliseconds). */
-#define HOST_SPAN_RING_CAP 65536u
+#define HOST_SPAN_RING_CAP PSX_DIAG_CAP(65536u)
 #define HOST_SPAN_MIN_US 50u
 
 /* Stamp guest frame `frame` at the current wall time. Also marks the calling
@@ -86,7 +87,7 @@ void host_frame_stamp(uint32_t frame, uint32_t interp_insns, uint32_t static_che
 uint64_t host_frame_stamp_total(void);
 int host_frame_stamp_get(uint64_t seq, uint32_t *frame, uint64_t *t_us, uint32_t *interp_insns,
                          uint32_t *static_checks, uint32_t *page_faults, uint32_t *io_read_kb);
-#define HOST_FRAME_STAMP_CAP 131072u
+#define HOST_FRAME_STAMP_CAP PSX_DIAG_CAP(131072u)
 
 #ifdef __cplusplus
 }

@@ -3,13 +3,14 @@
 /* Always-on host CPU sampler for the emulation thread, including Release.
  * See host_sampler.c; TCP host_profile; tools/host_profile.py. */
 #include <stdint.h>
+#include "psx_diag_capacity.h"
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
 /* 1 Mi samples: ~17 minutes at 1 kHz, enough to keep a whole load-transition route (24 MB) so a hitch found afterwards still has its host call sites. */
-#define HOST_SAMPLER_CAP 1048576u
+#define HOST_SAMPLER_CAP PSX_DIAG_CAP(1048576u)
 
 enum { HOST_SAMPLE_EXCEPTION = 1u };
 

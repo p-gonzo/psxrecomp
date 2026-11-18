@@ -2491,6 +2491,46 @@ function(psxrecomp_add_runtime_target target)
         target_compile_definitions(${target} PRIVATE PSX_OPENXR=1)
         target_link_libraries(${target} PRIVATE openxr_loader)
     endif()
+    # Diagnostic ring capacity (include/psx_diag_capacity.h): rings shrink by
+    # 2^shift. Empty = the platform default: 0 on desktops (unchanged), 6 on
+    # the 3DS, whose ~124 MB application memory cannot hold ~600 MB of
+    # always-on trace history.
+    set(PSX_DIAG_CAPACITY_SHIFT "" CACHE STRING
+        "Shrink diagnostic rings by 2^N (empty = platform default)")
+    if(PSX_DIAG_CAPACITY_SHIFT STREQUAL "")
+        if(NINTENDO_3DS)
+            set(_psx_diag_shift 6)
+        else()
+            set(_psx_diag_shift 0)
+        endif()
+    else()
+        set(_psx_diag_shift "${PSX_DIAG_CAPACITY_SHIFT}")
+    endif()
+    if(NOT _psx_diag_shift MATCHES "^[0-9]+$" OR _psx_diag_shift GREATER 16)
+        message(FATAL_ERROR "PSX_DIAG_CAPACITY_SHIFT must be 0..16, got '${_psx_diag_shift}'")
+    endif()
+    target_compile_definitions(${target} PRIVATE PSX_DIAG_CAPACITY_SHIFT=${_psx_diag_shift})
+    unset(_psx_diag_shift)
+
+    # Per-image disc digest cache (include/disc_content_hash.h). Empty = the
+    # platform default: off on desktops (unchanged), on for the 3DS, where a
+    # full-image SHA-256 at every launch takes over a minute.
+    set(PSX_DISC_DIGEST_CACHE "" CACHE STRING
+        "Reuse a disc image's digest while its size and mtime are unchanged (ON/OFF, empty = platform default)")
+    if(PSX_DISC_DIGEST_CACHE STREQUAL "")
+        if(NINTENDO_3DS)
+            set(_psx_digest_cache 1)
+        else()
+            set(_psx_digest_cache 0)
+        endif()
+    elseif(PSX_DISC_DIGEST_CACHE)
+        set(_psx_digest_cache 1)
+    else()
+        set(_psx_digest_cache 0)
+    endif()
+    target_compile_definitions(${target} PRIVATE PSX_DISC_DIGEST_CACHE=${_psx_digest_cache})
+    unset(_psx_digest_cache)
+
     if(WIN32 OR MINGW)
         # opengl32: GL backend (gpu_gl_renderer.c). GL 1.x is exported directly
         # by opengl32; Phase 2b will load modern GL via SDL_GL_GetProcAddress.

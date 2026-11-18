@@ -7,6 +7,7 @@
  * recording nor export requires a client to have been attached.
  */
 #include "audio_trace.h"
+#include "psx_diag_capacity.h"
 
 #include <stdatomic.h>
 #include <stdio.h>
@@ -14,11 +15,11 @@
 
 /* 2^22 frames @ 44100 ~= 95 s per tap. Power of two so wrap is a mask. */
 #if !defined(PSX_DISABLE_AUDIO_PCM_HISTORY) || !PSX_DISABLE_AUDIO_PCM_HISTORY
-#define PCM_RING_FRAMES (1u << 22)
+#define PCM_RING_FRAMES PSX_DIAG_CAP((1u << 22))
 #define PCM_RING_MASK   (PCM_RING_FRAMES - 1u)
 #endif
 
-#define EV_RING_CAP  (1u << 19)
+#define EV_RING_CAP  PSX_DIAG_CAP((1u << 19))
 #define EV_RING_MASK (EV_RING_CAP - 1u)
 
 /* Audibility threshold shared with snesrecomp's dropped_audible metric:

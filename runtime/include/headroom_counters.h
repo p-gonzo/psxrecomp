@@ -1,6 +1,7 @@
 #ifndef PSX_HEADROOM_COUNTERS_H
 #define PSX_HEADROOM_COUNTERS_H
 #include <stdint.h>
+#include "psx_diag_capacity.h"
 
 /* Host-lifetime counts only; never simulation/snapshot state. The disabled
  * build is an overhead control, not a runtime arm/disarm operation. */
@@ -108,7 +109,7 @@ enum {
 #undef PSX_HR_FIELD
     PSX_HR_COUNT
 };
-#define PSX_HEADROOM_CAP 4096u
+#define PSX_HEADROOM_CAP PSX_DIAG_CAP(4096u)
 typedef struct PsxHeadroomFrame {
     uint64_t seq, frame, cycles;
     uint64_t resets[2]; /* bit i: source counter decreased since previous frame */

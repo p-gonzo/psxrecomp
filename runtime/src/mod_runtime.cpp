@@ -1,4 +1,5 @@
 #include "psx_path_utf8.h"
+#include "host_path.h"
 #include "mod_runtime.h"
 #include "mod_command_registry.h"
 #include "host_launch_timing.h"
@@ -180,6 +181,10 @@ std::filesystem::path media_cache_root() {
     std::filesystem::path root;
 #if defined(_WIN32)
     if (const char* local = std::getenv("LOCALAPPDATA")) root = local;
+#elif defined(__3DS__)
+    /* No HOME, XDG or temporary directory on the 3DS: the title's own data
+     * folder on the SD card (the working directory) holds its caches. */
+    root = PSXRecompV4::host_absolute(std::filesystem::path("cache"));
 #else
     if (const char* cache = std::getenv("XDG_CACHE_HOME")) root = cache;
     else if (const char* home_dir = std::getenv("HOME")) root = std::filesystem::path(home_dir) / ".cache";

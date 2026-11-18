@@ -2,10 +2,11 @@
  * See parity_trace.h. Self-contained (no runtime internals) so the SAME TU
  * compiles into both psx-runtime and psx-beetle and they emit identical rows. */
 #include "parity_trace.h"
+#include "psx_diag_capacity.h"
 #include "psx_bss.h"
 #include <string.h>
 
-#define PARITY_RING_CAP 131072u  /* power of two; ~128K thread1 events of history
+#define PARITY_RING_CAP PSX_DIAG_CAP(131072u)  /* power of two; ~128K thread1 events of history
                                   * so the parked-thread1 divergence is in-window,
                                   * not just the wedge tail (~7.5 MB ring). */
 

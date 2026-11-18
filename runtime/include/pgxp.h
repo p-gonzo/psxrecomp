@@ -16,6 +16,7 @@
  */
 
 #include <stdint.h>
+#include "psx_diag_capacity.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -502,7 +503,7 @@ void pgxp_gte_op_end(uint32_t func);
  * that position came from. Two triangles that share a packet vertex (same
  * integers, same frame) but were handed different positions are a crack:
  * the ring is what localizes a seam to the producer of its vertices. */
-#define PGXP_TRI_RING_CAP 65536u
+#define PGXP_TRI_RING_CAP PSX_DIAG_CAP(65536u)
 typedef struct PGXPTriRecord {
     uint64_t seq;
     uint32_t frame;         /* s_frame_count when the triangle was drawn      */
@@ -531,7 +532,7 @@ uint64_t pgxp_tri_ring(const PGXPTriRecord **ring, uint32_t *cap);
  * filled it) is how a precision loss is pinned to one instruction. Native word
  * publication uses opcode/reg 0xFF and the operation's PC breadcrumb; it does
  * not claim that a CPU register held the transported receipt. */
-#define PGXP_STORE_RING_CAP 262144u
+#define PGXP_STORE_RING_CAP PSX_DIAG_CAP(262144u)
 #define PGXP_STORE_NATIVE_WORD 0xFFu
 typedef struct PGXPStoreRecord {
     uint64_t seq;

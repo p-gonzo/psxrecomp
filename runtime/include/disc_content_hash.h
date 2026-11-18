@@ -9,7 +9,9 @@
 #include <algorithm>
 #include <array>
 #include <cctype>
+#include <chrono>
 #include <filesystem>
+#include <fstream>
 #include <iomanip>
 #include <sstream>
 #include <string>
@@ -20,7 +22,7 @@ namespace PSXRecompV4 {
 // One byte identity for package targets and mandatory original-disc policy:
 // CUE hashes its data-track file; CHD hashes every decoded raw 2352-byte sector.
 // Host crypto and its portable fallback are shared through psx_sha256_file.
-inline bool disc_content_sha256(const std::filesystem::path& path, std::string& out,
+inline bool disc_content_sha256_uncached(const std::filesystem::path& path, std::string& out,
                  std::string* error) {
     out.clear();
     if (path.empty()) return true;
@@ -74,6 +76,68 @@ inline bool disc_content_sha256(const std::filesystem::path& path, std::string& 
         text << std::hex << std::setw(2) << std::setfill('0') << (unsigned)byte;
     out = text.str();
     return true;
+}
+
+#ifndef PSX_DISC_DIGEST_CACHE
+#define PSX_DISC_DIGEST_CACHE 0
+#endif
+
+// disc_content_sha256 with an optional per-image digest cache
+// (PSX_DISC_DIGEST_CACHE; runtime.cmake turns it on for the Nintendo 3DS).
+//
+// Hashing a whole image is about a second on a desktop and over a minute on a
+// 3DS reading its SD card, on every launch. With the cache, the image that is
+// actually hashed (a CUE's data file, or the CHD) gets a sidecar
+// "<image>.psxdigest" holding "psxdigest v1 <size> <mtime_ns> <sha256>". A
+// later call whose image has the same size and modification time reuses the
+// digest; any change, an unreadable or malformed sidecar, or a missing image
+// hashes in full and rewrites it. A sidecar that cannot be written only costs
+// the next launch a full hash.
+inline bool disc_content_sha256(const std::filesystem::path& path, std::string& out,
+                 std::string* error) {
+#if PSX_DISC_DIGEST_CACHE
+    out.clear();
+    if (path.empty()) return true;
+    const DiscPathResolution resolved = resolve_disc_path(path);
+    std::string extension = resolved.mount.extension().string();
+    std::transform(extension.begin(), extension.end(), extension.begin(),
+        [](unsigned char c) { return (char)std::tolower(c); });
+    const std::filesystem::path hashed =
+        extension == ".chd" ? resolved.mount : resolved.data;
+    std::error_code size_ec, time_ec;
+    const auto size = std::filesystem::file_size(hashed, size_ec);
+    const auto mtime = std::filesystem::last_write_time(hashed, time_ec);
+    const bool keyed = !size_ec && !time_ec;
+    std::filesystem::path sidecar = hashed;
+    sidecar += ".psxdigest";
+    std::ostringstream key;
+    if (keyed)
+        key << "psxdigest v1 " << (unsigned long long)size << ' '
+            << (long long)std::chrono::duration_cast<std::chrono::nanoseconds>(
+                   mtime.time_since_epoch()).count() << ' ';
+    if (keyed) {
+        std::ifstream in(sidecar);
+        std::string line;
+        if (in && std::getline(in, line) && line.size() == key.str().size() + 64 &&
+            line.compare(0, key.str().size(), key.str()) == 0) {
+            const std::string digest = line.substr(key.str().size());
+            if (std::all_of(digest.begin(), digest.end(), [](unsigned char c) {
+                    return std::isdigit(c) || (c >= 'a' && c <= 'f');
+                })) {
+                out = digest;
+                return true;
+            }
+        }
+    }
+    const bool ok = disc_content_sha256_uncached(path, out, error);
+    if (ok && keyed && out.size() == 64) {
+        std::ofstream sidecar_out(sidecar, std::ios::trunc);
+        if (sidecar_out) sidecar_out << key.str() << out << '\n';
+    }
+    return ok;
+#else
+    return disc_content_sha256_uncached(path, out, error);
+#endif
 }
 
 // Configured once from the title's [game] required_disc_sha256, before any

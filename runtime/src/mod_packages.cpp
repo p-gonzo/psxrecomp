@@ -1,4 +1,5 @@
 #include "psx_path_utf8.h"
+#include "psx_path_canonical.h"
 #include "mod_packages.h"
 #include "host_launch_timing.h"
 
@@ -901,9 +902,9 @@ static fs::path package_default_path(const ModPackage& package, const ModResourc
     const bool folder = resource.format == "directory" || resource.format == "folder";
     if (folder ? !fs::is_directory(candidate, ec) : !fs::is_regular_file(candidate, ec))
         return {};
-    const fs::path real = fs::canonical(candidate, ec);
+    const fs::path real = ::PSXRecompV4::paths::canonical(candidate, ec);
     if (ec) return {};
-    const fs::path base = fs::canonical(package.root, ec);
+    const fs::path base = ::PSXRecompV4::paths::canonical(package.root, ec);
     if (ec) return {};
     const auto rel = real.lexically_relative(base);
     if (rel.empty() || rel.is_absolute() || *rel.begin() == "..") return {};

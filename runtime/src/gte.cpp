@@ -1,4 +1,5 @@
 #include <cmath>
+#include "psx_diag_capacity.h"
 #include "gte.h"
 #include "gte_presentation.h"
 #include "gte_projection_publication.hpp"
@@ -637,7 +638,7 @@ struct GteRtpRec {
     uint16_t SZ1, SZ2, SZ3;
     uint32_t FLAG;
 };
-#define GTE_RTP_RING_CAP (1u << 18)   /* 256K raw entries (~a few seconds) */
+#define GTE_RTP_RING_CAP PSX_DIAG_CAP((1u << 18))   /* 256K raw entries (~a few seconds) */
 static GteRtpRec* s_gte_rtp_ring = nullptr;
 static uint64_t   s_gte_rtp_seq  = 0;
 
@@ -654,7 +655,7 @@ static int      s_gte_fstat_valid = 0;
 
 /* Degenerate-latch: full records of flat/saturated projections, retained (small
  * ring) so intermittent flat frames are caught regardless of raw-ring roll. */
-#define GTE_LATCH_CAP (1u << 13)   /* 8192 */
+#define GTE_LATCH_CAP PSX_DIAG_CAP((1u << 13))   /* 8192 */
 static GteRtpRec* s_gte_latch = nullptr;
 static uint64_t   s_gte_latch_seq = 0;
 
@@ -776,7 +777,7 @@ struct GteIntplRec {
     int16_t  out1, out2, out3;
     uint32_t flag;
 };
-#define GTE_INTPL_RING_CAP (1u << 17)   /* 128K entries (~4s at menu rates) */
+#define GTE_INTPL_RING_CAP PSX_DIAG_CAP((1u << 17))   /* 128K entries (~4s at menu rates) */
 static GteIntplRec* s_gte_intpl_ring = nullptr;
 static uint64_t     s_gte_intpl_seq  = 0;
 

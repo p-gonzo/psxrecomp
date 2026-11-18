@@ -1,4 +1,5 @@
 #include "overlay_loader.h"
+#include "psx_diag_capacity.h"
 #include "overlay_api.h"
 #include "overlay_path_canon.h"
 #include "code_provider.h"
@@ -131,6 +132,14 @@ typedef struct {
  * would roll the production shard codegen hash and its publisher contract. */
 #ifdef PSX_OVERLAY_TEST_CANDIDATE_CAP
 #define CAND_CAP   PSX_OVERLAY_TEST_CANDIDATE_CAP
+#elif defined(__3DS__)
+/* The 3DS has no dynamic loader: psx_overlay_posix_library_open always fails,
+ * so load_overlay_dll (the only caller of cand_register) never registers a
+ * candidate, and the cache scan finds no DLLs. Size the candidate-derived
+ * tables for that rather than for the desktop publisher contract, which
+ * overlay_api.h keeps unchanged. A registration past the cap is still counted
+ * in s_cand_overflow, as on any host. */
+#define CAND_CAP   64
 #else
 #define CAND_CAP   PSX_OVERLAY_CANDIDATE_CAP
 #endif
@@ -1398,7 +1407,11 @@ const char *overlay_loader_last_msg(void) { return s_last_msg; }
  * TRUNCATED SILENTLY — every entry past the cap was invisible to the loader
  * (region ran interpreted forever, no diagnostic). Found by the ABI-sweep
  * negative test. scan_one_cache_dir now shouts if even 4096 is hit. */
+#if defined(__3DS__)
+#define CACHE_IDX_CAP 64      /* no DLL cache on the 3DS; see CAND_CAP */
+#else
 #define CACHE_IDX_CAP 4096
+#endif
 enum { CACHE_TIER_UNKNOWN = 0, CACHE_TIER_TCC = 1, CACHE_TIER_GCC = 2 };
 typedef struct {
     uint32_t region_start;
@@ -3378,7 +3391,11 @@ void overlay_loader_rescan(void) {
 /* The warmed vault and runtime-discovered variants can exceed the old 512-DLL
  * ceiling; once dll_already_loaded() lost track, a rescan could double-register
  * candidates. Match the cache-index capacity used by the loader. */
+#if defined(__3DS__)
+#define MAX_LOADED_DLLS 64    /* no dynamic loader on the 3DS; see CAND_CAP */
+#else
 #define MAX_LOADED_DLLS 4096
+#endif
 static char s_loaded_paths[MAX_LOADED_DLLS][768];
 static int  s_nloaded_paths = 0;
 
@@ -4581,7 +4598,7 @@ typedef struct {
     uint32_t in_regs[34];    /* r0..r31, hi, lo at entry                       */
     uint32_t out_regs[34];   /* r0..r31, hi, lo at exit                        */
 } FpEnt;
-#define FP_CAP (1u << 16)   /* ~19 MB with full reg files; ~65K executions     */
+#define FP_CAP PSX_DIAG_CAP((1u << 16))   /* ~19 MB with full reg files; ~65K executions     */
 static FpEnt    s_fp[FP_CAP];
 static uint64_t s_fp_seq = 0;
 

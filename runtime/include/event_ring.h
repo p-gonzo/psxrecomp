@@ -23,6 +23,7 @@
 #define PSXRECOMP_EVENT_RING_H
 
 #include <stdint.h>
+#include "psx_diag_capacity.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -40,7 +41,7 @@ extern "C" {
 #endif
 
 /* 64K entries * 48 bytes ~= 3 MB. Covers many frames of transition activity. */
-#define EVENT_RING_CAP (1u << 16)
+#define EVENT_RING_CAP PSX_DIAG_CAP((1u << 16))
 
 typedef enum {
     EV_NONE        = 0,

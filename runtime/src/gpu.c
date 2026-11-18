@@ -11,6 +11,7 @@
  */
 
 #include "gpu.h"
+#include "psx_diag_capacity.h"
 #include "gpu_gl_renderer.h"
 #include "mod_texture_banks.h"
 #include "display_scanout.h"
@@ -7559,7 +7560,7 @@ static void gp0_capture_builder_chain(uint32_t out[6]) {
     }
 }
 
-#define GP0_RING_CAP        (1u << 20)  /* 1 048 576 entries */
+#define GP0_RING_CAP        PSX_DIAG_CAP((1u << 20))  /* 1 048 576 entries */
 /* GpuGp0RingEntry + GPU_GP0_RING_MAX_WORDS are public types in gpu.h. */
 
 static GpuGp0RingEntry *gp0_ring = NULL;  /* lazy-alloc on first record */
@@ -7667,7 +7668,7 @@ void gpu_set_gp0_source(uint32_t addr) {
  * effective (4:3-sized) despawn margin, which the 16:9 view exceeds. A prim
  * present in the census but absent on screen would instead indict the renderer
  * gate. Query via TCP `ws_census` → CSV file (large dumps mustn't ride TCP). */
-#define WS_CENSUS_CAP (1u << 21)            /* 2,097,152 entries * 24B = 48 MiB */
+#define WS_CENSUS_CAP PSX_DIAG_CAP((1u << 21))            /* 2,097,152 entries * 24B = 48 MiB */
 typedef struct {
     uint32_t frame;
     uint32_t src_addr;

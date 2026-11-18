@@ -2,9 +2,10 @@
  * See device_trace.h. Self-contained (no runtime internals) so the SAME TU
  * compiles into both psx-runtime and psx-beetle and they emit identical rows. */
 #include "device_trace.h"
+#include "psx_diag_capacity.h"
 #include <string.h>
 
-#define DEVTRACE_RING_CAP (1u << 20)  /* 1M events (~24 MB); covers the whole
+#define DEVTRACE_RING_CAP PSX_DIAG_CAP((1u << 20))  /* 1M events (~24 MB); covers the whole
                                        * boot->wedge window so the divergent
                                        * event is in-window, never evicted. */
 

@@ -2,6 +2,7 @@
 #define PSXRECOMP_SIO_H
 
 #include <stdint.h>
+#include "psx_diag_capacity.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -263,7 +264,7 @@ void sio_mouse_clear_motion(int slot);
 
 /* ---- SIO byte-level trace ring buffer ----
  * 1M entries × ~28 B ≈ 32 MB.  At ~600 byte/sec that's ~30 min of history. */
-#define SIO_TRACE_CAP (1 << 20)
+#define SIO_TRACE_CAP PSX_DIAG_CAP((1 << 20))
 
 typedef struct {
     uint32_t seq;           /* monotonic sequence number */
@@ -336,7 +337,7 @@ void sio_get_freeze_diag(int *out_irq_pending, int *out_irq_countdown,
  * One entry per card protocol transaction (0x81 → terminal state / abort).
  * Always-on.  64K entries × ~544 B ≈ 35 MB — holds tens of minutes of card
  * activity at typical detection-cycle rates. */
-#define SIO_TXN_CAP        (1 << 16)
+#define SIO_TXN_CAP        PSX_DIAG_CAP((1 << 16))
 #define SIO_TXN_MAX_BYTES  256
 
 typedef enum {
@@ -380,7 +381,7 @@ const SioTxnEntry *sio_get_card_txn_live(void);
  *
  * Captures every time IRQ #7 (SIO0) is raised into I_STAT.  Always-on.
  * 1M entries × ~64 B ≈ 64 MB — holds tens of minutes of IRQ history. */
-#define SIO_IRQ_RING_CAP (1 << 20)
+#define SIO_IRQ_RING_CAP PSX_DIAG_CAP((1 << 20))
 
 typedef enum {
     SIO_IRQ_SRC_UNKNOWN  = 0,

@@ -1,4 +1,5 @@
 #include "audio_sync.h"
+#include "psx_path_canonical.h"
 #include "audio_catchup.h"
 /* main.cpp — Phase 3 runtime entry point.
  *
@@ -3790,7 +3791,7 @@ static std::filesystem::path discover_retail_bios_near(const char* argv0) {
             for (int ni = 0; ni < name_count; ++ni) {
                 const fs::path cand = dir / name_buf[ni];
                 if (retail_bios_file_ok(cand)) {
-                    auto abs = fs::weakly_canonical(cand, ec);
+                    auto abs = ::PSXRecompV4::paths::weakly_canonical(cand, ec);
                     if (ec) abs = PSXRecompV4::host_absolute(cand, ec);
                     return abs;
                 }
@@ -20696,7 +20697,7 @@ int main(int argc, char** argv) {
                     resolve_bios_path(seed.bios_path.string().c_str(), argv[0]);
                 std::error_code ec;
                 if (!resolved.empty() && std::filesystem::exists(resolved, ec)) {
-                    seed.bios_path = std::filesystem::weakly_canonical(resolved, ec);
+                    seed.bios_path = ::PSXRecompV4::paths::weakly_canonical(resolved, ec);
                     if (ec) seed.bios_path = PSXRecompV4::host_absolute(resolved, ec);
                     seed.has_bios_path = true;
                 } else {
@@ -21002,7 +21003,7 @@ int main(int argc, char** argv) {
                         std::error_code ec;
                         if (!resolved.empty() &&
                             std::filesystem::exists(resolved, ec)) {
-                            auto abs = std::filesystem::weakly_canonical(resolved, ec);
+                            auto abs = ::PSXRecompV4::paths::weakly_canonical(resolved, ec);
                             if (ec) abs = PSXRecompV4::host_absolute(resolved, ec);
                             std::snprintf(ls.bios_path, sizeof(ls.bios_path), "%s",
                                           abs.string().c_str());
@@ -21233,7 +21234,7 @@ int main(int argc, char** argv) {
                     std::error_code ec;
                     if (!resolved.empty() && std::filesystem::exists(resolved, ec)) {
                         seed.bios_path =
-                            std::filesystem::weakly_canonical(resolved, ec);
+                            ::PSXRecompV4::paths::weakly_canonical(resolved, ec);
                         if (ec)
                             seed.bios_path = PSXRecompV4::host_absolute(resolved, ec);
                     } else {
@@ -22636,6 +22637,26 @@ session_reboot:
         game_w, game_h,
         win_flags
     );
+    /* A video driver without GL or Vulkan windows (SDL's Nintendo 3DS driver,
+     * a desktop without a usable GL stack) refuses the GPU flag outright.
+     * Same rule as a GL backend that fails after the window exists: say so,
+     * use the software renderer, and open a plain window. */
+    const Uint32 gpu_window_flags =
+        (Uint32)(SDL_WINDOW_OPENGL | SDL_WINDOW_VULKAN | PSX_SDL_WINDOW_HIGH_DENSITY);
+    if (!sdl_window && (win_flags & (SDL_WINDOW_OPENGL | SDL_WINDOW_VULKAN))) {
+        std::fprintf(stdout,
+            "psxrecomp: %s window unavailable (%s); using the software renderer\n",
+            g_video_renderer == 2 ? "Vulkan" : "OpenGL", SDL_GetError());
+        g_video_renderer = 0;
+        g_video_hidpi_window = 0;
+        win_flags &= ~gpu_window_flags;
+        sdl_window = SDL_CreateWindow(
+            window_title.c_str(),
+            SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED,
+            game_w, game_h,
+            win_flags
+        );
+    }
     if (!sdl_window) {
         std::fprintf(stderr, "SDL_CreateWindow failed: %s\n", SDL_GetError());
         return refuse_start("video_init", "Game window could not be opened",
@@ -23689,7 +23710,7 @@ soft_return_lobby:
                     resolve_bios_path(preferred.string().c_str(), argv[0]);
                 std::error_code ec;
                 if (!resolved.empty() && std::filesystem::exists(resolved, ec)) {
-                    auto abs = std::filesystem::weakly_canonical(resolved, ec);
+                    auto abs = ::PSXRecompV4::paths::weakly_canonical(resolved, ec);
                     if (ec) abs = PSXRecompV4::host_absolute(resolved, ec);
                     std::snprintf(ls.bios_path, sizeof(ls.bios_path), "%s",
                                   abs.string().c_str());

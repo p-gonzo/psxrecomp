@@ -18,6 +18,7 @@
 #define PSXRECOMP_DMA_H
 
 #include <stdint.h>
+#include "psx_diag_capacity.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -89,7 +90,7 @@ typedef struct DMATraceEntry {
 } DMATraceEntry;
 
 #define DMA_TRACE_CAP (1 << 14)
-#define DMA_CDROM_HISTORY_CAP (1 << 13)
+#define DMA_CDROM_HISTORY_CAP PSX_DIAG_CAP((1 << 13))
 #define DMA_CDROM_HISTORY_WORDS 16
 
 typedef struct DMACDROMHistoryEntry {

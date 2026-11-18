@@ -2,6 +2,7 @@
 /* The runtime root is preferred. These paths are a host-only fallback and
  * never alter settings, saves, cards or other persistent runtime locations. */
 #include <array>
+#include "psx_path_canonical.h"
 #include <filesystem>
 #include <stdexcept>
 #include <string>
@@ -29,7 +30,7 @@ inline std::filesystem::path psx_playtest_diagnostic_executable() {
     std::array<char,32768> path{};
     uint32_t size=(uint32_t)path.size();
     if(_NSGetExecutablePath(path.data(),&size))throw std::runtime_error("cannot locate executable");
-    return std::filesystem::weakly_canonical(path.data());
+    return ::PSXRecompV4::paths::weakly_canonical(path.data());
 #else
     return {};
 #endif
@@ -55,8 +56,12 @@ inline std::filesystem::path psx_playtest_diagnostic_session_directory(
     std::error_code error;
     auto folder=application/"saves"/"diagnostics"/session;
     if(std::filesystem::create_directories(folder,error))return folder;
-    folder=std::filesystem::temp_directory_path()/"psxrecomp-diagnostics"/safe/session;
     error.clear();
-    if(std::filesystem::create_directories(folder,error))return folder;
+    // A host without a temporary directory (the 3DS) has only the first choice.
+    const auto temp=std::filesystem::temp_directory_path(error);
+    if(!error) {
+        folder=temp/"psxrecomp-diagnostics"/safe/session;
+        if(std::filesystem::create_directories(folder,error))return folder;
+    }
     throw std::runtime_error("session directory unavailable in application and temporary directories");
 }

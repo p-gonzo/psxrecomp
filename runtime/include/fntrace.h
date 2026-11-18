@@ -21,6 +21,7 @@
 #define PSXRECOMP_FNTRACE_H
 
 #include <stdint.h>
+#include "psx_diag_capacity.h"
 #include "cpu_state.h"
 
 #ifdef __cplusplus
@@ -32,7 +33,7 @@ extern "C" {
  * window retrospectives without per-second eviction.
  * Definition uses PSX_BSS so the zeros stay out of the PE image (MinGW+LTO
  * otherwise stuffed this into .rdata and bloated Windows .exe by ~144MiB). */
-#define FNTRACE_RING_CAP (1u << 22)
+#define FNTRACE_RING_CAP PSX_DIAG_CAP((1u << 22))
 
 typedef struct {
     uint32_t frame;     /* s_frame_count at dispatch */

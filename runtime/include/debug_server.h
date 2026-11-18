@@ -13,6 +13,7 @@
 #define PSXRECOMP_DEBUG_SERVER_H
 
 #include <stdint.h>
+#include "psx_diag_capacity.h"
 #include <stdio.h>
 
 #include "cpu_state.h"
@@ -23,7 +24,7 @@ extern "C" {
 
 /* ---- Ring buffer frame record ---- */
 
-#define FRAME_HISTORY_CAP 36000   /* ~10 min @ 60fps */
+#define FRAME_HISTORY_CAP PSX_DIAG_CAP(36000)   /* ~10 min @ 60fps */
 #define MAX_FRAME_DIFFS   32
 #define RAM_SNAPSHOT_REGIONS 4
 #define RAM_SNAPSHOT_SIZE    128

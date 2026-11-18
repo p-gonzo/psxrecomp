@@ -2,6 +2,7 @@
 /* Optional shipped-backend catalog. No catalog means no behavior change.
  * A profile switch is a process handoff, never a live code/config transplant. */
 #include "disc_identity.h"
+#include "psx_path_canonical.h"
 #include "disc_path.h"
 #include "psx_sha256_file.h"
 #include <toml.hpp>
@@ -40,22 +41,22 @@ inline bool same_backend(const fs::path& a,const fs::path& b) {
 }
 inline fs::path inside(const fs::path& relative) {
     if(relative.empty() || relative.is_absolute()) throw std::runtime_error("Profile backend must be relative");
-    auto p=fs::weakly_canonical(root/relative);
+    auto p=::PSXRecompV4::paths::weakly_canonical(root/relative);
     auto rel=p.lexically_relative(root);
     if(rel.empty() || *rel.begin()=="..") throw std::runtime_error("Profile backend escapes package");
     return p;
 }
 inline void load(const char* argv0) {
-    self=fs::weakly_canonical(fs::absolute(argv0));
+    self=::PSXRecompV4::paths::weakly_canonical(::PSXRecompV4::paths::absolute(argv0));
 #if defined(_WIN32)
     wchar_t module[32768];const DWORD length=GetModuleFileNameW(nullptr,module,32768);
-    if(length>0 && length<32768)self=fs::weakly_canonical(fs::path(module));
+    if(length>0 && length<32768)self=::PSXRecompV4::paths::weakly_canonical(fs::path(module));
 #endif
     auto folder=self.parent_path();
     for(int i=0;i<4 && !folder.empty();++i,folder=folder.parent_path()) {
         auto file=folder/"regional-launch.toml";
         if(!fs::is_regular_file(file)) continue;
-        root=fs::weakly_canonical(folder);
+        root=::PSXRecompV4::paths::weakly_canonical(folder);
         const auto config=toml::parse(file.string());
         disc_selection_locked=toml::find_or<bool>(config,"disc_selection_locked",false);
         for(const auto& entry:toml::find(config,"profile").as_array()) {

@@ -17,6 +17,7 @@
  */
 
 #include "spu.h"
+#include "psx_diag_capacity.h"
 #include "spu_gauss.h"
 #include "spu_shadow.h"
 #include "audio_trace.h"
@@ -139,7 +140,7 @@ extern uint64_t s_frame_count;
 /* 1M entries × ~32B = 32 MB. Power of 2 so wrap is a mask. Beetle peaks at
  * a few hundred audible-voice events per chime second; recomp at <1k total
  * per chime. 1M gives ~minutes of headroom for game-scene capture too. */
-#define SPU_EVENT_CAP (1u << 20)
+#define SPU_EVENT_CAP PSX_DIAG_CAP((1u << 20))
 static SpuEvent  s_events[SPU_EVENT_CAP];
 static uint32_t  s_event_idx = 0;
 static uint64_t  s_event_seq = 0;
@@ -883,7 +884,7 @@ typedef struct {
 } SpuShadowFrameTap;
 
 /* Sized to the largest spu_render block (main.cpp caps at 2048 frames). */
-#define SPU_SHADOW_TAP_FRAMES 2048
+#define SPU_SHADOW_TAP_FRAMES PSX_DIAG_CAP(2048)
 static SpuShadowFrameTap s_shadow_tap[SPU_SHADOW_TAP_FRAMES];
 static int               s_shadow_tap_on = 0;   /* set by spu_render when enabled */
 static int               s_shadow_tap_frame = 0;

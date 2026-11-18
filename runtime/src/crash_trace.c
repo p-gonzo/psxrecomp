@@ -27,6 +27,7 @@
 #define NOMINMAX
 #endif
 #include <windows.h>
+#include "psx_diag_capacity.h"
 #include <intrin.h>     /* __readgsqword — fiber TEB stack bounds for native_stack walk */
 #endif
 
@@ -116,7 +117,7 @@ typedef struct {
     uint64_t seq;
     uint32_t addr, phys, ra, a0, a1, frame, pad;
 } UnknownDispatchEntry;
-#define UNKNOWN_DISPATCH_CAP (1 << 16)
+#define UNKNOWN_DISPATCH_CAP PSX_DIAG_CAP((1 << 16))
 extern UnknownDispatchEntry crash_trace_unknown_get(uint64_t seq);
 extern uint64_t crash_trace_unknown_seq_get(void);
 
@@ -357,7 +358,7 @@ static void append_native_stack(char *buf, size_t cap, size_t *pos, uintptr_t st
 
 void psx_crash_trace_dump(const char *reason, void *seh_info) {
     /* Pre-allocate large stack buffer; avoid heap on SEH path. */
-    static char buf[8 * 1024 * 1024]; /* 8 MB */
+    static char buf[PSX_DIAG_BYTES(8u * 1024u * 1024u)]; /* 8 MB */
     size_t pos = 0;
 
     /* Header */

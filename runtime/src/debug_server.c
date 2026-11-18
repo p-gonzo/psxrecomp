@@ -16,6 +16,7 @@
 #  define _POSIX_C_SOURCE 200809L
 #endif
 #include <time.h>
+#include "psx_diag_capacity.h"
 #include "debug_server.h"
 #include "debug_bulk_write.h"
 #include "host_launch_timing.h"
@@ -218,7 +219,7 @@ uint64_t s_frame_count = 0;
  * live in frame_fingerprint.h and docs/TCP_COMMANDS.md. Reusable for any
  * title. */
 static PsxFrameFingerprint s_fp = PSX_FRAME_FINGERPRINT_INIT;
-#define FP_RING_CAP 32768
+#define FP_RING_CAP PSX_DIAG_CAP(32768)
 typedef struct { uint32_t frame; PsxFrameFingerprint fp; uint64_t cyc; } FpEntry;
 static PSX_BSS FpEntry  s_fp_ring[FP_RING_CAP];
 static uint32_t s_fp_head  = 0;
@@ -264,7 +265,7 @@ static void fp_snapshot(uint32_t frame)
  * writes (previously the blind spot), MMIO writes, and MMIO reads. The literal
  * first divergent ACCESS (read or write) is the first index whose tuple differs
  * between two runs. */
-#define REC_CAP 400000
+#define REC_CAP PSX_DIAG_CAP(400000)
 #define REC_KIND_RAM_W   0   /* main-RAM write   */
 #define REC_KIND_SP_W    1   /* scratchpad write */
 #define REC_KIND_MMIO_W  2   /* device-register write */
@@ -393,7 +394,7 @@ static PSX_BSS Watchpoint s_watchpoints[MAX_WATCHPOINTS];
  * to 256K-entry caps unless an explicit need for more arises — at 60Hz
  * and ~thousand events/frame that's still ~4 sec of coverage per ring,
  * and total runtime memory stays under ~100 MB worst-case. */
-#define WRITE_TRACE_CAP (1 << 18)
+#define WRITE_TRACE_CAP PSX_DIAG_CAP((1 << 18))
 typedef struct {
     uint64_t seq;        /* monotonic sequence number */
     uint32_t addr;       /* physical RAM address */
@@ -435,7 +436,7 @@ static uint32_t s_wtrace_head = 0;
  * first writes to a few high-value startup ranges and then stops, so late
  * probes can answer "what initialized/reset this?" even after the normal trace
  * has rolled. */
-#define WRITE_TRACE_BOOT_CAP (1 << 18)
+#define WRITE_TRACE_BOOT_CAP PSX_DIAG_CAP((1 << 18))
 static WriteTraceEntry *s_wtrace_boot = NULL;
 static uint64_t s_wtrace_boot_total = 0;  /* matching writes ever seen */
 static uint32_t s_wtrace_boot_count = 0;  /* entries retained */
@@ -465,7 +466,7 @@ static int s_wtrace_range_count = 0;
  * a range. Lean record (no register window) keeps 4M entries at ~128 MB;
  * this is intentionally large enough to retain Tomba's boot-to-OPTIONS
  * window for post-hoc initialization questions. */
-#define WRITE_TRACE_ALL_CAP (1 << 22)
+#define WRITE_TRACE_ALL_CAP PSX_DIAG_CAP((1 << 22))
 typedef struct {
     uint64_t seq;
     uint32_t addr;
@@ -485,7 +486,7 @@ static uint32_t s_wtrace_all_head = 0;
  * roll it before a boot-to-menu transition is diagnosed. This ring keeps a
  * long-lived timeseries for high-value scheduler/render state by recording only
  * writes whose value changed. */
-#define WRITE_TRACE_TRANS_CAP (1 << 20)
+#define WRITE_TRACE_TRANS_CAP PSX_DIAG_CAP((1 << 20))
 #define WTRACE_TRANS_DEFAULT_MAX_RANGES 16
 #define WTRACE_TRANS_MAX_RANGES (WTRACE_TRANS_DEFAULT_MAX_RANGES + WTRACE_ENV_MAX_RANGES)
 typedef struct {
@@ -549,7 +550,7 @@ static uint64_t s_sio_pc_trace_seq = 0;
 /* Compact register sidecar for SIO_CTRL writes.  The broad SIO PC ring keeps
  * the long timeline; this smaller ring carries the CPU state needed to explain
  * BIOS chain-driver branch decisions around SELECT resets. */
-#define SIO_CTRL_REG_TRACE_CAP (1 << 16)
+#define SIO_CTRL_REG_TRACE_CAP PSX_DIAG_CAP((1 << 16))
 typedef struct {
     uint64_t seq;
     uint32_t pc;
@@ -581,7 +582,7 @@ static uint64_t s_sio_ctrl_reg_trace_seq = 0;
  * the high-volume SIO/MMIO rings show what happened on the bus, while this
  * ring shows whether exception nonlocal control flow skipped a callback's
  * normal return-value cleanup. */
-#define RESTORE_TRACE_CAP (1 << 16)
+#define RESTORE_TRACE_CAP PSX_DIAG_CAP((1 << 16))
 typedef struct {
     uint64_t seq;
     uint32_t kind;
@@ -612,7 +613,7 @@ typedef struct {
 static PSX_BSS RestoreTraceEntry s_restore_trace[RESTORE_TRACE_CAP];
 static uint64_t s_restore_trace_seq = 0;
 
-#define THREAD_TRACE_CAP (1 << 16)
+#define THREAD_TRACE_CAP PSX_DIAG_CAP((1 << 16))
 typedef struct {
     uint64_t seq;
     uint32_t kind;
@@ -661,7 +662,7 @@ typedef struct {
 static PSX_BSS ThreadTraceEntry s_thread_trace[THREAD_TRACE_CAP];
 static uint64_t s_thread_trace_seq = 0;
 
-#define SREG_TRACE_CAP (1 << 18)
+#define SREG_TRACE_CAP PSX_DIAG_CAP((1 << 18))
 typedef struct {
     uint64_t seq;
     uint32_t tcb;
@@ -692,7 +693,7 @@ static PSX_BSS SregTraceEntry s_sreg_trace[SREG_TRACE_CAP];
 static uint64_t s_sreg_trace_seq = 0;
 static SregLastEntry s_sreg_last[32];
 
-#define PROBE_TRACE_CAP (1 << 16)
+#define PROBE_TRACE_CAP PSX_DIAG_CAP((1 << 16))
 typedef struct {
     uint64_t seq;
     uint32_t pc;
@@ -1062,7 +1063,7 @@ static uint64_t s_dispatch_seq = 0;
  * generated function AND doesn't match any trampoline pattern in
  * traps.c. Used to identify functions the recompiler missed.
  * 64K entries × 32 bytes = 2 MB. Replaces the prior file-based log. */
-#define UNKNOWN_DISPATCH_CAP (1 << 16)
+#define UNKNOWN_DISPATCH_CAP PSX_DIAG_CAP((1 << 16))
 typedef struct {
     uint64_t seq;
     uint32_t addr;
@@ -1204,8 +1205,8 @@ static uint32_t s_chain_state_active = 0;  /* 0 if not in a state, else state ad
  * ≈ 7 GB.  Lazily resident — only pages actually written use RAM, so the
  * footprint grows from 0 toward the cap as the ring fills.
  * Exit ring stays modest (1<<22, ~192 MB) — exits are auxiliary.  */
-#define FN_TRACE_CAP        (1 << 18)
-#define FN_EXIT_TRACE_CAP   (1 << 18)
+#define FN_TRACE_CAP        PSX_DIAG_CAP((1 << 18))
+#define FN_EXIT_TRACE_CAP   PSX_DIAG_CAP((1 << 18))
 #define FN_STACK_DEPTH 4096
 
 typedef struct {
@@ -1240,7 +1241,7 @@ static uint64_t      s_fn_exit_seq   = 0;
  * involved in NEW GAME / LOAD GAME / OPTIONS transitions. The generic function
  * ring is either filtered or too hot; this ring preserves the boot-to-menu
  * call history without one-shot arming. */
-#define CALL_FOCUS_CAP (1 << 20)
+#define CALL_FOCUS_CAP PSX_DIAG_CAP((1 << 20))
 typedef struct {
     uint64_t seq;
     uint32_t func_addr;
@@ -1289,7 +1290,7 @@ static uint64_t s_call_focus_seq = 0;
  * during Tomba title/menu polling, so it rotates away the card-read setup
  * before we can inspect a later hang. This ring records only the BIOS public
  * card state machine and the low-level RAM card service boundary. */
-#define CARD_MGR_TRACE_CAP 65536
+#define CARD_MGR_TRACE_CAP PSX_DIAG_CAP(65536)
 typedef struct {
     uint64_t seq;
     uint32_t func_addr;
@@ -1356,7 +1357,7 @@ static uint64_t     s_fn_tail_calls        = 0;
  * Memory: 256 snapshots × ~960B = ~240 KB. */
 #define EVCB_DELIVER_EVENT_ADDR 0x00001B44u  /* func_00001B44, RAM */
 /* 4096 snapshots × 32 entries × ~28 B ≈ 3.7 MB — holds many minutes. */
-#define EVCB_RING_CAP           4096
+#define EVCB_RING_CAP           PSX_DIAG_CAP(4096)
 #define EVCB_MAX_ENTRIES        32
 #define EVCB_ENTRY_SIZE         28           /* sizeof EvCB on real PSX */
 
@@ -2183,7 +2184,7 @@ void debug_server_log_call_entry(uint32_t func_addr) {
 
 /* Always-on A0/B0/C0 BIOS-call ring (ported from ape-fw for good-vs-bad
  * event-delivery comparison). Recorded at the central dispatch chokepoint. */
-#define BIOSCALL_RING_CAP (1 << 16)
+#define BIOSCALL_RING_CAP PSX_DIAG_CAP((1 << 16))
 typedef struct {
     uint64_t seq; uint32_t table_base; uint32_t index; uint32_t func_ptr;
     uint32_t a0, a1, a2, a3; uint32_t ra; uint32_t current_func; uint32_t frame;
@@ -4773,7 +4774,7 @@ static void handle_probe_clear(int id, const char *json)
  * 1<<22 entries, heap-allocated in debug_server_init().
  * Kept in step with the SIO PC trace so generic MMIO history has enough
  * retention for post-failure queries. */
-#define MMIO_TRACE_CAP (1 << 18)
+#define MMIO_TRACE_CAP PSX_DIAG_CAP((1 << 18))
 typedef struct {
     uint64_t seq;
     uint32_t addr;       /* 0x1F801xxx */
@@ -4807,7 +4808,7 @@ static uint32_t s_mmio_trace_head = 0;
  * so 512K entries ≈ 15 minutes — enough to attribute a boot window from
  * well after the title screen. ~40 MB heap.
  * Same entry layout as the general ring; dumped via `gp1_dump`. */
-#define GP1_TRACE_CAP (1 << 19)
+#define GP1_TRACE_CAP PSX_DIAG_CAP((1 << 19))
 static MmioTraceEntry *s_gp1_trace = NULL;
 static uint64_t s_gp1_trace_seq  = 0;
 static uint32_t s_gp1_trace_head = 0;
@@ -12068,7 +12069,7 @@ void debug_server_log_call_entry_cpu(uint32_t func_addr, CPUState *cpu) {
  * comparison): card state table 0x9F20, result flags 0xB9D0, byte counter 0x72F0,
  * chain success 0x7520, chain ptrs 0x7528, and the EvCB card-event entries
  * 0xE044-0xE0D0 (status/spec/mode). Sparse => no eviction over a session. */
-#define CARD_TRACE_CAP (1u << 16)
+#define CARD_TRACE_CAP PSX_DIAG_CAP((1u << 16))
 typedef struct {
     uint64_t seq; uint32_t phys; uint32_t old_val; uint32_t new_val;
     uint32_t pc; uint32_t cpu_pc; uint32_t ra; uint32_t func; uint32_t frame;
@@ -15303,7 +15304,7 @@ static void handle_overlay_native_ring(int id, const char *json)
 {
     (void)json;
     extern int overlay_loader_dump_native_ring(char *out, int cap);
-    static char rbuf[2 * 1024 * 1024];
+    static char rbuf[PSX_DIAG_BYTES(2u * 1024u * 1024u)];
     int len = overlay_loader_dump_native_ring(rbuf, (int)sizeof(rbuf));
     if (len < 0) len = 0;
     int cap = len + 128;
@@ -16186,7 +16187,7 @@ static void handle_xlate(int id, const char *json)
     extern int text_xlate_debug_json(const char *subcmd, char *out, int cap);
     char sub[32] = {0};
     if (!json_get_str(json, "sub", sub, sizeof(sub))) strcpy(sub, "stats");
-    static char buf[1 << 20];   /* 1 MB — the inventory dump can be large */
+    static char buf[PSX_DIAG_BYTES(1u << 20)];   /* 1 MB — the inventory dump can be large */
     int n = text_xlate_debug_json(sub, buf, (int)sizeof(buf));
     if (n < 0) n = 0;
     if (n < (int)sizeof(buf)) buf[n] = 0; else buf[sizeof(buf) - 1] = 0;
@@ -16213,7 +16214,7 @@ static void handle_xprobe(int id, const char *json)
 {
     (void)json;
     extern int dirty_ram_xprobe_json(char *out, int cap);
-    static char buf[1048576];
+    static char buf[PSX_DIAG_BYTES(1048576u)];
     /* send_fmt's formatting buffer is 64KB — cap the live dump (summary + a
      * detail window) under that. The full rings go to the crash report file. */
     dirty_ram_xprobe_json(buf, 56000);

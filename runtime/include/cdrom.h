@@ -2,6 +2,7 @@
 #define PSXRECOMP_CDROM_H
 
 #include <stdint.h>
+#include "psx_diag_capacity.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -328,9 +329,9 @@ typedef struct CDROMTraceEntry {
     int read_delay;
 } CDROMTraceEntry;
 
-#define CDROM_TRACE_CAP (1 << 16)
+#define CDROM_TRACE_CAP PSX_DIAG_CAP((1 << 16))
 #define CDROM_COMMAND_HISTORY_CAP (1 << 13)
-#define CDROM_SECTOR_HISTORY_CAP (1 << 13)
+#define CDROM_SECTOR_HISTORY_CAP PSX_DIAG_CAP((1 << 13))
 #define CDROM_SECTOR_HISTORY_BYTES 128
 
 typedef struct CDROMCommandHistoryEntry {
