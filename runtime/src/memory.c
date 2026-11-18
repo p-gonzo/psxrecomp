@@ -281,6 +281,10 @@ static uint32_t dirty_ram_bitmap[DIRTY_RAM_BITMAP_WORDS];
  * code change — a cached kind must never survive an overlay reload. */
 uint32_t g_dirty_ram_code_gen = 1;
 
+/* Word-precise text equality bits (defined with the text guard below). */
+static void text_equal_forget_all(void);
+static void text_equal_forget_range(uint32_t phys, uint32_t len);
+
 static inline void dirty_ram_mark_page(uint32_t phys) {
     if (phys >= RAM_LIVE) return;
     uint32_t page = phys >> DIRTY_RAM_PAGE_SHIFT;
@@ -289,7 +293,10 @@ static inline void dirty_ram_mark_page(uint32_t phys) {
      * writes land here on every guest store, and bumping per write would
      * invalidate the per-PC site caches continuously. Overlay (re)loads always
      * bump via dirty_ram_mark_executable_range. */
-    if (!(dirty_ram_bitmap[page >> 5] & bit)) g_dirty_ram_code_gen++;
+    if (!(dirty_ram_bitmap[page >> 5] & bit)) {
+        g_dirty_ram_code_gen++;
+        text_equal_forget_range(page << DIRTY_RAM_PAGE_SHIFT, 1u << DIRTY_RAM_PAGE_SHIFT);
+    }
     dirty_ram_bitmap[page >> 5] |= bit;
 }
 
@@ -630,6 +637,7 @@ void dirty_ram_clear_image_baseline(void) {
     uint32_t last_page  = (floor - 1u) >> DIRTY_RAM_PAGE_SHIFT;
     for (uint32_t page = first_page; page <= last_page; page++)
         dirty_ram_bitmap[page >> 5] &= ~(1u << (page & 31u));
+    text_equal_forget_all();   /* pages turn clean: re-earn every bit */
 }
 
 /* Text-image divergence guard.
@@ -652,11 +660,87 @@ void dirty_ram_clear_image_baseline(void) {
 static uint64_t text_validation_revision = 1;
 static void text_validation_note_bulk_range(uint32_t first, uint32_t last);
 static uint64_t text_compare_calls;
+static uint64_t text_equal_hits;   /* range checks settled by the word bits */
 uint64_t dirty_ram_text_validation_revision(void) { return text_validation_revision; }
 uint64_t dirty_ram_text_compare_calls(void) { return text_compare_calls; }
+uint64_t dirty_ram_text_equal_hits(void) { return text_equal_hits; }
 
 static uint8_t *text_ref_image = NULL;
 uint32_t g_psx_text_write_lo = 0, g_psx_text_write_hi = 0;
+
+/* Word-precise "known equal to the reference" bits for the text image: bit w
+ * set means RAM word [lo + 4w, lo + 4w + 4) equals the reference bytes. The
+ * page bitmaps below are too coarse for games whose variables share pages
+ * with their code (THPS2): one data store flags the page, and every dispatch
+ * into a function on it then re-compared the function's bytes.
+ *
+ * Invariant: a bit is set only when equality is known - a full compare of a
+ * range succeeded, or a guarded CPU store left the word equal - and cleared
+ * whenever that knowledge can lapse (a guarded store that makes the word
+ * differ, image registration, boot reset, restore, a bless, any change to the
+ * dirty bitmap). The bits are consulted only for pages that are not
+ * runtime-dirty, the same pages the page-clean fast path already trusts to
+ * change only through guarded stores; anything not known equal falls back to
+ * the byte compare, so a missing bit costs time, never correctness. */
+static uint32_t *text_equal_bits = NULL;
+static uint32_t text_equal_words = 0;   /* text words covered */
+
+static void text_equal_forget_all(void) {
+    if (text_equal_bits) memset(text_equal_bits, 0, ((text_equal_words + 31u) / 32u) * 4u);
+}
+
+/* Clear the bits for every text word overlapping [phys, phys + len). */
+static void text_equal_forget_range(uint32_t phys, uint32_t len) {
+    if (!text_equal_bits || len == 0) return;
+    uint32_t lo = phys, hi = phys + len;
+    if (hi < lo) hi = 0xFFFFFFFFu;
+    if (lo < g_psx_text_write_lo) lo = g_psx_text_write_lo;
+    if (hi > g_psx_text_write_hi) hi = g_psx_text_write_hi;
+    if (hi <= lo) return;
+    uint32_t w0 = (lo - g_psx_text_write_lo) >> 2;
+    uint32_t w1 = (hi - g_psx_text_write_lo + 3u) >> 2;
+    if (w1 > text_equal_words) w1 = text_equal_words;
+    for (uint32_t w = w0; w < w1; w++) text_equal_bits[w >> 5] &= ~(1u << (w & 31u));
+}
+
+/* Set the bits for the whole words inside [phys, phys + len), just verified equal. */
+static void text_equal_note_verified(uint32_t phys, uint32_t len) {
+    if (!text_equal_bits || len < 4u) return;
+    uint32_t w0 = (phys - g_psx_text_write_lo + 3u) >> 2;
+    uint32_t w1 = (phys + len - g_psx_text_write_lo) >> 2;
+    if (w1 > text_equal_words) w1 = text_equal_words;
+    for (uint32_t w = w0; w < w1; w++) text_equal_bits[w >> 5] |= 1u << (w & 31u);
+}
+
+/* PSX_TEXT_EQUAL_BITS=0 turns the word-precise path off for one run (A/B
+ * measurement, or to rule it out): every check then compares bytes as before. */
+static int text_equal_enabled(void) {
+    static int s = -1;
+    if (s < 0) { const char *e = getenv("PSX_TEXT_EQUAL_BITS"); s = !(e && e[0] == '0'); }
+    return s;
+}
+
+/* 1 when every word of [phys, phys + len) is known equal to the reference. */
+static int text_equal_known(uint32_t phys, uint32_t len) {
+    if (!text_equal_bits || (phys & 3u) || (len & 3u) || len == 0) return 0;
+    if (!text_equal_enabled()) return 0;
+    uint32_t w = (phys - g_psx_text_write_lo) >> 2;
+    uint32_t end = w + (len >> 2);
+    if (end > text_equal_words) return 0;
+    while (w < end && (w & 31u)) {
+        if (!(text_equal_bits[w >> 5] & (1u << (w & 31u)))) return 0;
+        w++;
+    }
+    while (w + 32u <= end) {
+        if (text_equal_bits[w >> 5] != 0xFFFFFFFFu) return 0;
+        w += 32u;
+    }
+    while (w < end) {
+        if (!(text_equal_bits[w >> 5] & (1u << (w & 31u)))) return 0;
+        w++;
+    }
+    return 1;
+}
 static uint32_t text_modified_bitmap[DIRTY_RAM_BITMAP_WORDS];
 static uint32_t text_diverged_bitmap[DIRTY_RAM_BITMAP_WORDS];
 static uint64_t g_text_native_blocked = 0;
@@ -688,6 +772,10 @@ void dirty_ram_register_text_image(uint32_t phys_lo, const uint8_t *bytes,
     text_ref_image = (uint8_t *)bytes;  /* runtime-owned mutable heap buffer */
     g_psx_text_write_lo = phys_lo;
     g_psx_text_write_hi = phys_lo + len;
+    free(text_equal_bits);
+    text_equal_words = len / 4u;
+    text_equal_bits = (uint32_t *)calloc((text_equal_words + 31u) / 32u, 4u);
+    if (!text_equal_bits) text_equal_words = 0;   /* no bits: always compare */
     memset(text_modified_bitmap, 0, sizeof(text_modified_bitmap));
     memset(text_diverged_bitmap, 0, sizeof(text_diverged_bitmap));
     memset(text_foreign_bitmap, 0, sizeof(text_foreign_bitmap));
@@ -743,6 +831,22 @@ static inline void text_guard_note_write(uint32_t phys, uint32_t val, int size) 
     if (memcmp(ref, buf, (size_t)size) != 0) {
         uint32_t page = phys >> DIRTY_RAM_PAGE_SHIFT;
         text_modified_bitmap[page >> 5] |= (1u << (page & 31u));
+    }
+    if (text_equal_bits) {
+        /* The whole word after this store: live bytes with the new ones in. */
+        const uint32_t a = phys & ~3u;
+        const uint32_t w = (a - g_psx_text_write_lo) >> 2;
+        if (a < g_psx_text_write_lo || w >= text_equal_words || (phys - a) + (uint32_t)size > 4u) {
+            text_equal_forget_range(phys, (uint32_t)size);
+        } else {
+            uint8_t word[4];
+            memcpy(word, ram + a, 4);
+            memcpy(word + (phys - a), buf, (size_t)size);
+            if (memcmp(word, text_ref_image + (a - g_psx_text_write_lo), 4) == 0)
+                text_equal_bits[w >> 5] |= 1u << (w & 31u);
+            else
+                text_equal_bits[w >> 5] &= ~(1u << (w & 31u));
+        }
     }
 }
 
@@ -855,6 +959,21 @@ int dirty_ram_text_native_ok_ranges_from(const uint32_t *lo_len_pairs,
             }
             if (clean) continue;
         }
+        /* Word-precise path: no page of the range is runtime-dirty, so its
+         * bytes changed only through guarded stores, and every word is known
+         * equal to the reference. Data stores elsewhere on the page do not
+         * reach here. */
+        {
+            uint32_t p0 = phys >> DIRTY_RAM_PAGE_SHIFT;
+            uint32_t p1 = (phys + len - 1u) >> DIRTY_RAM_PAGE_SHIFT;
+            int dirty = 0;
+            for (uint32_t p = p0; p <= p1 && !dirty; p++)
+                dirty = dirty_ram_is_dirty(p << DIRTY_RAM_PAGE_SHIFT);
+            if (!dirty && text_equal_known(phys, len)) {
+                ++text_equal_hits;
+                continue;
+            }
+        }
         ++text_compare_calls;
         if (memcmp(ram + phys, text_ref_image + (phys - g_psx_text_write_lo), len) != 0) {
             uint32_t off = 0;
@@ -872,6 +991,7 @@ int dirty_ram_text_native_ok_ranges_from(const uint32_t *lo_len_pairs,
             g_text_native_blocked++;
             return 0;
         }
+        text_equal_note_verified(phys, len);
     }
     if (!any) {
         g_text_native_blocked++;
@@ -919,6 +1039,7 @@ void dirty_ram_text_bless(uint32_t phys, const uint8_t *bytes, uint32_t len) {
     if (memcmp(ref, src, hi - lo) == 0) return;                     /* already in sync */
     memcpy(ref, src, hi - lo);
     ++text_validation_revision;
+    text_equal_forget_range(lo, hi - lo);   /* the reference changed */
     /* Re-open the affected pages: clear the sticky diverged bit so the next
      * dispatch re-runs the compare against the now-updated reference. */
     uint32_t first_page = lo >> DIRTY_RAM_PAGE_SHIFT;
@@ -963,6 +1084,8 @@ void dirty_ram_mark_executable_range(uint32_t phys, uint32_t len) {
     /* Bulk DMA/EXE loaders may bypass individual store notifications. Only
      * invalidate watched code pages; unrelated DMA does not alter its proof. */
     text_validation_note_bulk_range(first_page, last_page);
+    text_equal_forget_range(first_page << DIRTY_RAM_PAGE_SHIFT,
+                            (last_page - first_page + 1u) << DIRTY_RAM_PAGE_SHIFT);
     for (uint32_t page = first_page; page <= last_page; page++) {
         dirty_ram_bitmap[page >> 5] |= (1u << (page & 31u));
     }
@@ -1037,6 +1160,7 @@ uint32_t dirty_ram_get_bitmap_word_count(void) {
 
 void dirty_ram_set_bitmap_words(const uint32_t* words, uint32_t count) {
     ++text_validation_revision;
+    text_equal_forget_all();
     memset(dirty_ram_bitmap, 0, sizeof(dirty_ram_bitmap));
     if (count > DIRTY_RAM_LIVE_BITMAP_WORDS) count = DIRTY_RAM_LIVE_BITMAP_WORDS;
     for (uint32_t i = 0; i < count; i++)
@@ -1077,6 +1201,7 @@ static void text_validation_note_bulk_range(uint32_t first, uint32_t last) {
 
 void dirty_ram_reset_for_boot(void) {
     ++text_validation_revision;
+    text_equal_forget_all();
     memset(dirty_ram_bitmap, 0, sizeof(dirty_ram_bitmap));
     memset(text_modified_bitmap, 0, sizeof(text_modified_bitmap));
     memset(text_diverged_bitmap, 0, sizeof(text_diverged_bitmap));
@@ -1163,6 +1288,7 @@ void dirty_ram_text_guard_resync_after_restore(void) {
      * mismatching page back under the exact compare. */
     memset(text_modified_bitmap, 0, sizeof(text_modified_bitmap));
     memset(text_diverged_bitmap, 0, sizeof(text_diverged_bitmap));
+    text_equal_forget_all();
     g_text_diverged_pages = 0;
     if (text_ref_image && g_psx_text_write_hi > g_psx_text_write_lo) {
         uint32_t p0 = g_psx_text_write_lo >> DIRTY_RAM_PAGE_SHIFT;
