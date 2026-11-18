@@ -191,7 +191,7 @@ bool ModMode2Disc::read(const std::string& path,std::vector<uint8_t>& out) const
     for(uint32_t p=0;p<size;) {
         const auto* sector=bytes_+uint64_t(lba+p/2048)*2336;
         if(sector[2]&0x20)return false;
-        const uint32_t n=std::min(2048u,size-p);
+        const uint32_t n=std::min<uint32_t>(2048u,size-p);
         std::memcpy(result.data()+p,sector+8,n);p+=n;
     }
     out=std::move(result);return true;

@@ -356,7 +356,13 @@ static int mkdirs(const char *path) {
  * exit status (or -1 when it could not be started). Windows: no console
  * window; the executable is a GUI-subsystem process. */
 static int run_command(const char *cmd) {
-#if defined(_WIN32)
+#if defined(__3DS__)
+    /* Horizon cannot start another process. A 3DS build links its BIOS
+     * statically, so building a module here is never required; report that
+     * the command could not be started. */
+    (void)cmd;
+    return -1;
+#elif defined(_WIN32)
     STARTUPINFOA si;
     PROCESS_INFORMATION pi;
     SECURITY_ATTRIBUTES sa;

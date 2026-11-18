@@ -38,6 +38,11 @@ int psx_program_set_lock_acquire(const char *saves_dir)
                          NULL);
     if (s_lock != INVALID_HANDLE_VALUE) return 1;
     return GetLastError() == ERROR_SHARING_VIOLATION ? 0 : -1;
+#elif defined(__3DS__)
+    /* Horizon runs one application at a time and this process cannot spawn
+     * or relaunch another, so no second instance can hold the program set. */
+    (void)path;
+    return 1;
 #else
     if (s_lock >= 0) return 1;
     int flags = O_CREAT | O_RDWR;

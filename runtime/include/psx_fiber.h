@@ -13,6 +13,8 @@
  * Backends:
  *   - Windows: the Win32 Fiber API (ConvertThreadToFiber / CreateFiber /
  *     SwitchToFiber / DeleteFiber). Behavior is identical to the original.
+ *   - Nintendo 3DS: a hand-written ARM callee-saved register swap (newlib
+ *     has no ucontext).
  *   - POSIX (macOS/Linux): ucontext (makecontext / swapcontext).
  *
  * Cooperative, single-threaded: exactly one fiber runs at a time and all

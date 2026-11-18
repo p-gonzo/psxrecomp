@@ -908,6 +908,12 @@ bool run_xdelta_decode(const std::filesystem::path& executable,
         return false;
     }
     return true;
+#elif defined(__3DS__)
+    /* Horizon cannot start another program, so the external decoder is
+     * unavailable and a disc that needs it is not materialized. */
+    (void)executable; (void)source; (void)patch; (void)output;
+    if (error) *error = "cannot start trusted xdelta3 decoder: this platform cannot run external programs";
+    return false;
 #else
     const pid_t child = fork();
     if (child == 0) {
@@ -3295,7 +3301,7 @@ extern "C" int psx_mod_replace_disc_file(const char* path, const void* bytes,
         for (uint32_t i=0;i<count;++i) {
             auto* sector=sectors.data()+size_t(i)*2336;
             sector[2]=sector[6]=8;
-            const uint32_t n=std::min(2048u,size-i*2048u);
+            const uint32_t n=std::min<uint32_t>(2048u,size-i*2048u);
             std::memcpy(sector+8,static_cast<const uint8_t*>(bytes)+size_t(i)*2048,n);
             uint32_t edc=0;
             for (unsigned j=0;j<2056;++j) {
@@ -3348,7 +3354,7 @@ extern "C" int psx_mod_read_disc_file(const char* path, void* buffer,
              * otherwise its first guest instruction can trip the watchdog. */
             if (g_progress_hook && !(offset & ((2048u * 1024u) - 1u))) g_progress_hook();
             if (!read_effective_user_sector(reader, lba + offset / 2048u, sector)) return 0;
-            const uint32_t count = std::min(2048u, bytes - offset);
+            const uint32_t count = std::min<uint32_t>(2048u, bytes - offset);
             std::memcpy(static_cast<uint8_t*>(buffer) + offset, sector, count);
         }
         if (g_progress_hook) g_progress_hook();

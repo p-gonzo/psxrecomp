@@ -1,5 +1,6 @@
 /*
- * psx_fiber.c — Win32-Fiber / POSIX-ucontext backends for psx_fiber.h.
+ * psx_fiber.c — Win32-Fiber / Nintendo 3DS (ARM register swap) / POSIX-ucontext
+ * backends for psx_fiber.h.
  */
 #include "psx_fiber.h"
 
@@ -33,6 +34,121 @@ psx_fiber_t psx_fiber_create(size_t stack_size, psx_fiber_entry entry, void* arg
 
 void psx_fiber_switch(psx_fiber_t target) { SwitchToFiber((LPVOID)target); }
 void psx_fiber_destroy(psx_fiber_t fiber) { if (fiber) DeleteFiber((LPVOID)fiber); }
+
+#elif defined(__3DS__)
+
+/* Nintendo 3DS (ARMv6K, AAPCS hard-float). newlib has no ucontext, so the
+ * switch is a hand-written callee-saved register swap: r4-r11, sp, lr and the
+ * VFP registers d8-d15 that the hard-float ABI requires a callee to preserve.
+ * Everything else is caller-saved, so the C caller of psx_fiber_swap has
+ * already spilled it. Cooperative and single-threaded, like the other
+ * backends. */
+
+#include <stdint.h>
+#include <stdlib.h>
+#include <malloc.h>
+
+#define PSX_FIBER_MIN_STACK (64u * 1024u)
+
+typedef struct psx_fiber_impl {
+    uint32_t        core[10];    /* r4-r11, sp, lr      (byte offsets 0..39) */
+    uint64_t        vfp[8];      /* d8-d15              (byte offset 40)     */
+    void*           stack;       /* NULL for the thread-fiber                */
+    psx_fiber_entry entry;
+    void*           arg;
+} psx_fiber_impl;
+
+_Static_assert(__builtin_offsetof(psx_fiber_impl, vfp) == 40,
+               "psx_fiber_swap hard-codes the d8-d15 offset");
+
+static psx_fiber_impl* s_current = NULL;
+
+/* Save the running fiber's callee-saved state into *from, load *to's, and
+ * return into *to (bx lr). */
+__attribute__((naked, noinline))
+static void psx_fiber_swap(psx_fiber_impl* from, psx_fiber_impl* to)
+{
+    (void)from; (void)to;
+    __asm__ volatile(
+        "add    r2, r0, #40      \n\t"
+        "vstmia r2, {d8-d15}     \n\t"
+        "stmia  r0, {r4-r11}     \n\t"
+        "mov    r2, sp           \n\t"
+        "str    r2, [r0, #32]    \n\t"
+        "str    lr, [r0, #36]    \n\t"
+        "add    r2, r1, #40      \n\t"
+        "vldmia r2, {d8-d15}     \n\t"
+        "ldmia  r1, {r4-r11}     \n\t"
+        "ldr    r2, [r1, #32]    \n\t"
+        "mov    sp, r2           \n\t"
+        "ldr    lr, [r1, #36]    \n\t"
+        "bx     lr               \n\t");
+}
+
+static void psx_fiber_run(psx_fiber_impl* f) __attribute__((noreturn, used));
+static void psx_fiber_run(psx_fiber_impl* f)
+{
+    f->entry(f->arg);
+    /* The BIOS thread entry never returns normally (it switches back to its
+     * scheduler target, or trap_crashes). Reaching here is a bug. */
+    abort();
+}
+
+/* First instruction a new fiber executes: psx_fiber_create parks the fiber
+ * pointer in r4 and this address in lr. */
+__attribute__((naked, noinline, used))
+static void psx_fiber_bootstrap(void)
+{
+    __asm__ volatile(
+        "mov r0, r4              \n\t"
+        "bl  psx_fiber_run       \n\t");
+}
+
+psx_fiber_t psx_fiber_convert_thread(void)
+{
+    if (!s_current) {
+        psx_fiber_impl* f = (psx_fiber_impl*)calloc(1, sizeof(*f));
+        if (!f) return NULL;
+        s_current = f;   /* runs on the real thread stack; state saved on first switch */
+    }
+    return (psx_fiber_t)s_current;
+}
+
+psx_fiber_t psx_fiber_current(void) { return (psx_fiber_t)s_current; }
+
+psx_fiber_t psx_fiber_create(size_t stack_size, psx_fiber_entry entry, void* arg)
+{
+    if (stack_size < PSX_FIBER_MIN_STACK) stack_size = PSX_FIBER_MIN_STACK;
+    stack_size = (stack_size + 7u) & ~(size_t)7u;
+    psx_fiber_impl* f = (psx_fiber_impl*)calloc(1, sizeof(*f));
+    if (!f) return NULL;
+    f->stack = memalign(8, stack_size);
+    if (!f->stack) { free(f); return NULL; }
+    f->entry = entry;
+    f->arg   = arg;
+    f->core[0] = (uint32_t)(uintptr_t)f;                                   /* r4 */
+    f->core[8] = (uint32_t)(uintptr_t)((uint8_t*)f->stack + stack_size);  /* sp, 8-aligned */
+    f->core[9] = (uint32_t)(uintptr_t)psx_fiber_bootstrap;                 /* lr */
+    return (psx_fiber_t)f;
+}
+
+void psx_fiber_switch(psx_fiber_t target)
+{
+    psx_fiber_impl* to   = (psx_fiber_impl*)target;
+    psx_fiber_impl* from = s_current;
+    if (!to || to == from) return;
+    s_current = to;
+    psx_fiber_swap(from, to);
+    /* Resumed: s_current was set back to `from` by whoever switched here. */
+}
+
+void psx_fiber_destroy(psx_fiber_t fiber)
+{
+    psx_fiber_impl* f = (psx_fiber_impl*)fiber;
+    if (!f) return;
+    free(f->stack);
+    free(f);
+}
 
 #else /* POSIX: ucontext */
 

@@ -40,6 +40,12 @@ static uint64_t qpc_now_us(void) {
     return (uint64_t)ts.tv_sec * 1000000ull + (uint64_t)ts.tv_nsec / 1000ull;
 }
 static uint64_t this_thread_id(void) { return (uint64_t)(uintptr_t)pthread_self(); }
+#if defined(__3DS__)
+/* Horizon exposes no per-process page-fault or block-I/O counters (newlib's
+ * struct rusage has no such fields), so these read as unavailable: zero, the
+ * same value the POSIX path reports when getrusage fails. */
+static void proc_counters(uint32_t *faults, uint32_t *io_kb) { *faults = 0; *io_kb = 0; }
+#else
 static void proc_counters(uint32_t *faults, uint32_t *io_kb) {
     struct rusage ru;
     *faults = 0; *io_kb = 0;
@@ -48,6 +54,7 @@ static void proc_counters(uint32_t *faults, uint32_t *io_kb) {
         *io_kb = (uint32_t)(ru.ru_inblock / 2);   /* 512-byte blocks */
     }
 }
+#endif /* __3DS__ */
 #endif
 
 static _Atomic uint64_t s_origin_us;

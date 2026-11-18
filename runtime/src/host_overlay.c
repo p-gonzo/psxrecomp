@@ -334,6 +334,13 @@ void psx_relaunch_self_with(int argc, char** argv, const char* const* extra, int
     free(wline);
     free(exe);
 }
+#elif defined(__3DS__)
+/* Horizon has no exec: an application cannot replace its own image. Per the
+ * contract (host_overlay.h) these return only on failure, so they return. */
+void psx_relaunch_self(int argc, char** argv) { psx_relaunch_self_with(argc, argv, NULL, 0); }
+void psx_relaunch_self_with(int argc, char** argv, const char* const* extra, int extra_n) {
+    (void)argc; (void)argv; (void)extra; (void)extra_n;
+}
 #else
 #include <signal.h>
 #include <stdio.h>

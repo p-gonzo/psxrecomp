@@ -113,6 +113,7 @@
 #else
 #  include <sys/socket.h>
 #  include <netinet/in.h>
+#  include <arpa/inet.h>    /* htonl / htons */
 #  include <sys/time.h>     /* struct timeval — socket send/recv timeouts */
 #  include <unistd.h>
 #  include <fcntl.h>
@@ -4959,8 +4960,10 @@ static int send_all_blocking(sock_t sock, const char *data, size_t len)
 #else
     int flags = fcntl(sock, F_GETFL, 0);
     fcntl(sock, F_SETFL, flags & ~O_NONBLOCK);
+#  ifdef SO_SNDTIMEO   /* absent on the 3DS: only the total budget applies */
     struct timeval tmo = { 2, 0 };
     setsockopt(sock, SOL_SOCKET, SO_SNDTIMEO, &tmo, sizeof(tmo));
+#  endif
 #endif
     size_t sent = 0;
     while (sent < len) {

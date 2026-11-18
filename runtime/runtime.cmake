@@ -2503,6 +2503,14 @@ function(psxrecomp_add_runtime_target target)
         if(MINGW)
             target_link_libraries(${target} PRIVATE winpthread)
         endif()
+    elseif(NINTENDO_3DS)
+        # No OpenGL on the 3DS. gpu_gl_renderer.c loads every GL entry point
+        # through SDL (gl_core_loader.h), so it links without a GL library;
+        # SDL's 3DS video driver has no GL context, GL init returns 0 and the
+        # runtime uses the software renderer. pthreads come from devkitARM's
+        # newlib on top of libctru threads.
+        find_package(Threads REQUIRED)
+        target_link_libraries(${target} PRIVATE Threads::Threads)
     else()
         if(CMAKE_DL_LIBS)
             target_link_libraries(${target} PRIVATE ${CMAKE_DL_LIBS})

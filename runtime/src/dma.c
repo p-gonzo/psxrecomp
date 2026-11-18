@@ -877,7 +877,9 @@ static uint64_t hold_host_ticks(void) {
 #ifdef _WIN32
     LARGE_INTEGER c; QueryPerformanceCounter(&c); return (uint64_t)c.QuadPart;
 #else
-    struct timespec ts; timespec_get(&ts, TIME_UTC);   /* C11; diagnostics only */
+    /* Diagnostics only. clock_gettime rather than C11 timespec_get, which
+     * newlib (the 3DS libc) does not provide; monotonic suits an interval. */
+    struct timespec ts; clock_gettime(CLOCK_MONOTONIC, &ts);
     return (uint64_t)ts.tv_sec * 1000000000ull + (uint64_t)ts.tv_nsec;
 #endif
 }

@@ -110,6 +110,7 @@
 #else
 #include <SDL_opengl.h>
 #endif
+#include "gl_core_loader.h"   /* GL 1.1 via SDL_GL_GetProcAddress, no GL link */
 #include <limits.h>
 #include <math.h>
 #include <stddef.h>
@@ -156,6 +157,11 @@ static inline GLboolean glcap_is_enabled(GLenum cap) {
     return (GLboolean)*c;
 }
 static inline void glcap_forget(void) { s_glcap_blend = s_glcap_stencil = -1; }
+/* The glcap_* bodies above call the loaded entry points (gl_core_loader.h);
+ * from here on these three names mean the cached wrappers. */
+#undef glEnable
+#undef glDisable
+#undef glIsEnabled
 #define glEnable(cap)    glcap_enable(cap)
 #define glDisable(cap)   glcap_disable(cap)
 #define glIsEnabled(cap) glcap_is_enabled(cap)
@@ -6603,6 +6609,14 @@ int gl_renderer_init_context(SDL_Window *win) {
     glcap_forget();
     if (!s_ctx) { fprintf(stdout, "psxrecomp: GL context creation failed (%s)\n", SDL_GetError()); return 0; }
     if (SDL_GL_MakeCurrent(win, s_ctx) != 0) { fprintf(stdout, "psxrecomp: MakeCurrent failed (%s)\n", SDL_GetError()); SDL_GL_DeleteContext(s_ctx); s_ctx=NULL; return 0; }
+    {
+        const char *missing = NULL;
+        if (!psx_gl_core_load(&missing)) {
+            fprintf(stdout, "psxrecomp: GL 1.1 entry point %s unavailable\n", missing);
+            SDL_GL_MakeCurrent(win, NULL); SDL_GL_DeleteContext(s_ctx); s_ctx = NULL;
+            return 0;
+        }
+    }
     /* Swap interval: 1=vsync (tear-free, default), 0=immediate (lowest display
      * latency, may tear; our wall-clock pacer still holds 59.94Hz), -1=adaptive.
      * Adaptive falls back to vsync if the driver rejects it. */

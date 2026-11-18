@@ -47,7 +47,10 @@ int psx_overlay_cache_name_parse(const char *name, uint32_t *region_start,
     return 1;
 }
 
-#ifndef _WIN32
+/* Windows has its own loader; the 3DS has no dynamic loader at all, so native
+ * overlay libraries are unavailable there and overlays run on the interpreter
+ * (or as build-time static shards). */
+#if !defined(_WIN32) && !defined(__3DS__)
 
 #include <dirent.h>
 #include <dlfcn.h>
@@ -159,7 +162,9 @@ int psx_overlay_posix_find_other_cache_tag(const char *base_dir,
 }
 void *psx_overlay_posix_library_open(const char *path, char *error,
                                      size_t error_size) {
-    (void)path; (void)error; (void)error_size;
+    (void)path;
+    if (error && error_size)
+        snprintf(error, error_size, "native overlay libraries are not supported on this platform");
     return NULL;
 }
 void *psx_overlay_posix_library_symbol(void *handle, const char *name) {

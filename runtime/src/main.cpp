@@ -259,9 +259,11 @@ extern "C" void psx_game_codegen_forward_if_built(int argc, char** argv);
 #else
 #include <arpa/inet.h>
 #include <fcntl.h>
+#if !defined(__3DS__)   /* no getifaddrs on the 3DS; see ae_np_collect_local_addresses */
 #include <ifaddrs.h>
-#include <netdb.h>
 #include <net/if.h>
+#endif
+#include <netdb.h>
 #include <netinet/in.h>
 #include <sys/socket.h>
 #include <sys/time.h>
@@ -16361,6 +16363,14 @@ namespace {
                 push(ip, label);
             }
         }
+#elif defined(__3DS__)
+        /* One interface: libctru's gethostid() returns the console's IPv4
+         * address (network byte order), or 0 before the network is up. */
+        struct in_addr a;
+        a.s_addr = (in_addr_t)gethostid();
+        if (a.s_addr == 0) return;
+        char ip[64] = {};
+        if (inet_ntop(AF_INET, &a, ip, sizeof(ip))) push(ip, "wlan");
 #else
         struct ifaddrs* ifa = nullptr;
         if (getifaddrs(&ifa) != 0 || !ifa) return;
@@ -18155,6 +18165,9 @@ const OvlLookRow* ovl_look_row(int setting) {
 std::atomic<bool> g_ovl_look_available[PSX_MENU_SESSION_DITHERING + 1];
 void ovl_look_catalog_snapshot(void) {
     for (auto& available : g_ovl_look_available) available = false;
+#if defined(RECOMP_LAUNCHER)
+    /* The mod catalog is the launcher's provider; a build without recomp-ui
+     * has none, so no package-backed look row is offered. */
     const auto* mods = PSXRecompV4::mod_runtime_launcher_provider();
     if (!mods || !mods->feature_count || !mods->feature_get) return;
     for (int setting=PSX_MENU_SESSION_INTERNAL_RESOLUTION;
@@ -18179,6 +18192,7 @@ void ovl_look_catalog_snapshot(void) {
             break;
         }
     }
+#endif  /* RECOMP_LAUNCHER */
 }
 bool ovl_look_catalog_available(int setting) {
     const OvlLookRow* row=ovl_look_row(setting);

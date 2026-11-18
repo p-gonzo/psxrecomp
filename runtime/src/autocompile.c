@@ -1456,6 +1456,13 @@ static int autocompile_request_impl(void) {
         return 0;
     }
     return 1;
+#elif defined(__3DS__)
+    /* Horizon cannot fork or exec, so no overlay compiler can run on the
+     * console. Counted like a driver that could not be started (a failed fork
+     * on POSIX); overlays stay on the interpreter or the build-time static
+     * shards. */
+    autocompile_note_failure();
+    return 0;
 #else
     pthread_mutex_lock(&s_out_lock);
     s_publish_drops_run = 0;
