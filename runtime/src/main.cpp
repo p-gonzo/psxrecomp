@@ -174,6 +174,7 @@ extern "C" uint32_t g_guest_last_store_addr, g_guest_last_store_val;
 #include "disc_boot_image.h" /* text-image guard: the boot EXE on the disc */
 #include "psx_keybinds.h"
 #include "host_overlay.h"
+#include "host_present.h"
 #include "psx_disc_tray.h"
 #include "psx_runtime_menu.h"
 #include "psx_host_menu.h"
@@ -10860,6 +10861,12 @@ static NetplayVblankEpilogue sdl_vblank_present_body(void) {
                             mdec_get_decode_count());
         netplay_note_present();
     } else {
+    /* A platform presenter (host_present.h) may show the finished frame
+     * itself; with none registered this is a no-op. */
+    if (psx_host_present_frame(sdl_pixel_buf, src_w, src_h, src_w, pin_43 ? 1 : 0)) {
+        netplay_note_present();
+        return ep;
+    }
     if ((!sdl_renderer || !sdl_texture) && ensure_sw_sdl_present() != 0)
         return ep;
     if (!sdl_renderer || !sdl_texture)
