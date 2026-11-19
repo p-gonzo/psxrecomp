@@ -82,7 +82,7 @@ static inline const uint8_t *psx_native_span_load_view(CPUState *cpu,
 }
 
 static inline void psx_native_span_note_load(uint32_t addr, const uint8_t *view, uint32_t width) {
-#if !defined(PSX_COSIM)
+#if !defined(PSX_COSIM) && !(defined(PSX_LEAN_HOST) && PSX_LEAN_HOST)   /* counters: see psx_direct_memory.h */
     if (!view) { psx_direct_note_helper(addr, 0); return; }
     if ((addr & 0x1FFFFFFFu) < PSX_MAIN_RAM_WINDOW_BYTES) {
         ++PSX_DM_VALUE(g_psx_direct_memory_stats).load_inline_ram;

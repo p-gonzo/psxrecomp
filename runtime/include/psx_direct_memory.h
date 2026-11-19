@@ -179,7 +179,17 @@ static inline void psx_memory_note_helper_width(uint32_t address, unsigned store
     !defined(PSX_COSIM) && \
     !defined(PSX_MEMORY_INTERNAL)
 
+/* PSX_LEAN_HOST (constrained hosts, e.g. the 3DS): the per-access counters
+ * below are diagnostics, read only by the debug server and benchmarks; one
+ * 64-bit increment per guest load/store is a measurable share of the frame
+ * there, so they compile out. Behaviour is unchanged. */
+#ifndef PSX_LEAN_HOST
+#define PSX_LEAN_HOST 0
+#endif
 static inline void psx_direct_note_helper(uint32_t address, int store) {
+#if PSX_LEAN_HOST
+    (void)address; (void)store; return;
+#endif
 #ifdef PSX_OVERLAY_DLL_BUILD
     if(!g_psx_overlay_memory_view)return;
 #endif
@@ -237,6 +247,7 @@ static inline uint8_t *psx_direct_store_view(uint32_t address, uint32_t width) {
 }
 
 static inline void psx_direct_note_store(uint32_t addr, uint32_t value, uint32_t width) {
+#if !PSX_LEAN_HOST
     if ((addr & 0x1FFFFFFFu) < PSX_MAIN_RAM_WINDOW_BYTES) {
         ++PSX_DM_VALUE(g_psx_direct_memory_stats).store_inline_ram;
         psx_memory_note_inline_width(1u, PSX_MEM_RAM, width);
@@ -244,7 +255,8 @@ static inline void psx_direct_note_store(uint32_t addr, uint32_t value, uint32_t
         ++PSX_DM_VALUE(g_psx_direct_memory_stats).store_inline_scratch;
         psx_memory_note_inline_width(1u, PSX_MEM_SCRATCH, width);
     }
-    ++PSX_DM_VALUE(g_guest_store_count);
+#endif
+    ++PSX_DM_VALUE(g_guest_store_count);   /* idle-loop detection evidence: kept */
     if (!PSX_DM_VALUE(g_psx_track_last_store)) return;
     PSX_DM_VALUE(g_guest_last_store_addr) = width == 4u ? addr : UINT32_MAX;
     if (width == 4u) PSX_DM_VALUE(g_guest_last_store_val) = value;
@@ -265,6 +277,14 @@ void psx_direct_precision_write(uint32_t, uint32_t, uint32_t, uint8_t);
 #endif
 static inline void psx_direct_observe_store(uint32_t addr, const uint8_t *p,
                                             uint32_t value, uint32_t width) {
+#if PSX_LEAN_HOST && !defined(PSX_OVERLAY_DLL_BUILD) && \
+    !((defined(PSX_PGXP_OPERATIONS) && PSX_PGXP_OPERATIONS) || \
+      (defined(PSX_PGXP_DEMAND_REGIONS) && PSX_PGXP_DEMAND_REGIONS))
+    /* Lean hosts compile the debug server's write history out of the
+     * canonical store path too (memory.c); keep the two paths equal. */
+    (void)addr; (void)p; (void)value; (void)width;
+    return;
+#endif
     uint32_t phys = addr & 0x1FFFFFFFu;
     uint32_t old_value = p[0];
     if (width >= 2u) old_value |= (uint32_t)p[1] << 8;
