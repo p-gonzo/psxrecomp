@@ -19,7 +19,7 @@
  * its own size.
  *
  * Set with the CMake cache variable PSX_DIAG_CAPACITY_SHIFT (runtime.cmake);
- * NINTENDO_3DS builds default to 6 (1/64).
+ * NINTENDO_3DS builds default to 10 (1/1024).
  */
 #ifndef PSX_DIAG_CAPACITY_H
 #define PSX_DIAG_CAPACITY_H

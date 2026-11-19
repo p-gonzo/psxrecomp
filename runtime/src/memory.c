@@ -51,12 +51,36 @@
 static int rp_mod_journal(uint8_t *base, uint32_t page_base, uint32_t off,
                           uint32_t width);
 
+#if PSX_LEAN_HOST
+/* Constrained hosts: the large buffers come from the heap, not the program
+ * image. The Nintendo 3DS maps an application's code and static data into
+ * 0x00100000-0x04000000 (about 63 MB) and its heap elsewhere; as static
+ * arrays these alone put THPS2's image 30 MB over that range, and the loader
+ * refused it. Same sizes, allocated before main. */
+static uint8_t *ram;
+#else
 static uint8_t ram[RAM_SIZE];
+#endif
 static uint8_t scratchpad[SCRATCHPAD_SIZE];
 static uint8_t bios_rom[BIOS_ROM_SIZE];
 static uint8_t mod_memory[MOD_MEMORY_SIZE];
 static uint32_t mod_memory_used;
+#if PSX_LEAN_HOST
+static uint8_t *mod_gpu_dma_memory;   /* heap; see ram above */
+__attribute__((constructor(101)))
+static void memory_lean_host_alloc(void) {
+    ram = (uint8_t *)calloc(1, RAM_SIZE);
+    mod_gpu_dma_memory = (uint8_t *)calloc(1, PSX_MOD_GPU_DMA_APERTURE_SIZE);
+    if (!ram || !mod_gpu_dma_memory) {
+        fputs("psxrecomp: cannot allocate guest RAM\n", stdout);
+        exit(EXIT_FAILURE);
+    }
+    extern uint8_t *g_psx_ram;
+    g_psx_ram = ram;
+}
+#else
 static uint8_t mod_gpu_dma_memory[PSX_MOD_GPU_DMA_APERTURE_SIZE];
+#endif
 static uint32_t mod_gpu_dma_memory_used;
 uint32_t psx_mod_memory_snapshot_bytes(void) {
     return mod_memory_used || mod_gpu_dma_memory_used
@@ -186,7 +210,11 @@ uint32_t psx_gpu_packet_key(uint32_t address) {
 }
 
 /* Exposed for inlined main-RAM load helpers in psx_cyc.h (VLC/decode hot path). */
+#if PSX_LEAN_HOST
+uint8_t *g_psx_ram;   /* set by memory_lean_host_alloc, before main */
+#else
 uint8_t *g_psx_ram = ram;
+#endif
 uint8_t *g_psx_scratchpad = scratchpad;
 PSXDirectMemoryStats g_psx_direct_memory_stats;
 PSXMemoryWidthStats g_psx_memory_width_stats;
@@ -1626,7 +1654,7 @@ uint32_t memory_get_bios_checksum(void) { return s_bios_checksum; }
 
 void memory_init(const char* bios_path) {
     psx_ram_apply_size_request();
-    memset(ram, 0, sizeof(ram));
+    memset(ram, 0, RAM_SIZE);
     memset(scratchpad, 0, sizeof(scratchpad));
     /* Rematch re-enters without process exit — wipe sticky I/O regs that
      * live outside device *_init (I_STAT/I_MASK cleared in interrupts_init). */
@@ -2402,7 +2430,7 @@ int psx_mod_memory_reset_session(void) {
     render_pass_mod_arenas_rollback();
     memset(s_rp_mod_bits, 0, sizeof s_rp_mod_bits);
     memset(mod_memory, 0, sizeof mod_memory);
-    memset(mod_gpu_dma_memory, 0, sizeof mod_gpu_dma_memory);
+    memset(mod_gpu_dma_memory, 0, PSX_MOD_GPU_DMA_APERTURE_SIZE);
     mod_memory_used = mod_gpu_dma_memory_used = 0;
     g_render_pass_mod_pages = 0;
     return 1;

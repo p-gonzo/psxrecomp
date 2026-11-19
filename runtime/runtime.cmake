@@ -2493,14 +2493,16 @@ function(psxrecomp_add_runtime_target target)
         target_link_libraries(${target} PRIVATE openxr_loader)
     endif()
     # Diagnostic ring capacity (include/psx_diag_capacity.h): rings shrink by
-    # 2^shift. Empty = the platform default: 0 on desktops (unchanged), 6 on
+    # 2^shift. Empty = the platform default: 0 on desktops (unchanged), 10 on
     # the 3DS, whose ~124 MB application memory cannot hold ~600 MB of
     # always-on trace history.
     set(PSX_DIAG_CAPACITY_SHIFT "" CACHE STRING
         "Shrink diagnostic rings by 2^N (empty = platform default)")
     if(PSX_DIAG_CAPACITY_SHIFT STREQUAL "")
         if(NINTENDO_3DS)
-            set(_psx_diag_shift 6)
+            # 1/1024: with the big buffers on the heap this keeps the program
+            # image (code + static data) under the 64 MB the 3DS loader maps.
+            set(_psx_diag_shift 10)
         else()
             set(_psx_diag_shift 0)
         endif()

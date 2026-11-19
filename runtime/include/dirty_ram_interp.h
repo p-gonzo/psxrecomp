@@ -327,7 +327,11 @@ typedef struct {
                           * session-long instead of ring-bounded; the full
                           * call/jalr/jr transfer split stays in the fp-log ring. */
 } DirtyRamPcEntry;
+#if defined(PSX_LEAN_HOST) && PSX_LEAN_HOST
+extern DirtyRamPcEntry *g_dirty_ram_pc_table;   /* heap on constrained hosts */
+#else
 extern DirtyRamPcEntry g_dirty_ram_pc_table[DIRTY_RAM_PC_TABLE_SIZE];
+#endif
 /* Every aligned main-RAM word is a possible instruction PC.  Execution
  * coverage only needs presence, not a hit count, so record it in a direct
  * bitmap instead of probing a large hash table for every retired instruction.

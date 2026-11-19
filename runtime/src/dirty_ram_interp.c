@@ -45,6 +45,7 @@
 #include "mod_immediate.h"     /* [[mod_immediate.sites]] selectors */
 
 #include <stdint.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -227,7 +228,22 @@ uint32_t g_dirty_ram_last_unsupported_pc  = 0;
 uint32_t g_dirty_ram_last_unsupported_insn = 0;
 const char *g_dirty_ram_last_unsupported_reason = NULL;
 
+#if defined(PSX_LEAN_HOST) && PSX_LEAN_HOST
+/* Heap on constrained hosts, as memory.c's guest RAM: same size, out of the
+ * program image (the 3DS limits code + static data to ~63 MB). */
+DirtyRamPcEntry *g_dirty_ram_pc_table;
+__attribute__((constructor(101)))
+static void dirty_ram_pc_table_alloc(void) {
+    g_dirty_ram_pc_table = (DirtyRamPcEntry *)calloc(DIRTY_RAM_PC_TABLE_SIZE,
+                                                     sizeof(DirtyRamPcEntry));
+    if (!g_dirty_ram_pc_table) {
+        fputs("psxrecomp: cannot allocate the interpreter PC table\n", stdout);
+        exit(EXIT_FAILURE);
+    }
+}
+#else
 DirtyRamPcEntry g_dirty_ram_pc_table[DIRTY_RAM_PC_TABLE_SIZE] = {0};
+#endif
 uint32_t g_dirty_ram_exec_pc_bitmap[DIRTY_RAM_EXEC_BITMAP_WORDS] = {0};
 uint32_t g_dirty_ram_exec_page_bitmap[DIRTY_RAM_EXEC_PAGE_BITMAP_WORDS] = {0};
 uint32_t g_dirty_ram_dispatch_pc_bitmap[DIRTY_RAM_EXEC_BITMAP_WORDS] = {0};
