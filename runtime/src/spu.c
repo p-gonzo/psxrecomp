@@ -2125,6 +2125,11 @@ void spu_snapshot_write(uint8_t *p) {
     pst_w_u32(&w, (uint32_t)(psx_get_cycle_count() - s_clock));
 }
 
+/* The restored clock, read without device observation (spu_observation_time.c
+ * overrides psx_get_cycle_count with an observing read). */
+#ifndef PSX_SPU_RESTORE_CYCLE_COUNT
+#define PSX_SPU_RESTORE_CYCLE_COUNT psx_get_cycle_count
+#endif
 int spu_snapshot_read(const uint8_t *p, uint32_t len) {
     PstR r;
     if (!spu_snapshot_len_ok(len)) return 0;
@@ -2174,7 +2179,7 @@ int spu_snapshot_read(const uint8_t *p, uint32_t len) {
      * (voice state / SPU RAM split with identical CPU paths,
      * PSX_RB_DET_SELFTEST). */
     {
-        const uint64_t now = psx_get_cycle_count();
+        const uint64_t now = PSX_SPU_RESTORE_CYCLE_COUNT();
         const uint32_t carry = phase % SPU_CYCLES_PER_SAMPLE;
         s_clock = now >= carry ? now - carry : now;
         s_clock_carry = 0;
