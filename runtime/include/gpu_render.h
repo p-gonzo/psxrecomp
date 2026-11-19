@@ -255,6 +255,11 @@ typedef struct GpuRenderBackend {
     void (*display_mode_changed)(void);
 } GpuRenderBackend;
 
+/* Host tap: a platform observes every renderer call (same signatures as the
+ * backend table) after the active backend ran it. NULL members are skipped;
+ * NULL tap turns it off. Draw coordinates include the draw offset. */
+void gr_set_host_tap(const GpuRenderBackend *tap);
+
 enum { GR_HD_NOTE_INVALIDATE = 0, GR_HD_NOTE_TRACK_UPLOAD = 1,
        GR_HD_NOTE_BEGIN_UPLOAD = 2 /* GP0(A0) header: invalidate; payload streams */,
        GR_HD_NOTE_BEGIN_COPY = 3, GR_HD_NOTE_END_COPY = 4 };

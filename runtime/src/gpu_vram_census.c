@@ -175,7 +175,8 @@ void vram_census_prim(int xmin, int ymin, int xmax, int ymax, int textured,
                       uint16_t clut_x, uint16_t clut_y, uint16_t texpage,
                       int raw_texture) {
     (void)raw_texture;
-    int x1 = xmin + s_ox, y1 = ymin + s_oy, x2 = xmax + s_ox, y2 = ymax + s_oy;
+    /* gr_* coordinates already include the draw offset. */
+    int x1 = xmin, y1 = ymin, x2 = xmax, y2 = ymax;
     if (x1 < s_ax1) x1 = s_ax1;
     if (y1 < s_ay1) y1 = s_ay1;
     if (x2 > s_ax2) x2 = s_ax2;

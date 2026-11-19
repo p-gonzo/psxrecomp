@@ -16,6 +16,7 @@
 #include "gpu_uv.h"
 #include "gpu_vram_census.h"
 #include <stdio.h>
+#include <stdlib.h>
 
 static const GpuRenderBackend SW_BACKEND = {
     .name                          = "software",
@@ -169,16 +170,52 @@ void gr_refresh_backend(void) {
     }
 }
 
+/* ---- Host tap -------------------------------------------------------------
+ * A platform may observe every renderer call after the active backend has
+ * run it (gr_set_host_tap). The 3DS port uses it to drive its GPU renderer
+ * alongside the software one. NULL members are skipped. */
+static const GpuRenderBackend *g_tap;
+void gr_set_host_tap(const GpuRenderBackend *tap) { g_tap = tap; }
+#define TAP(fn, ...) do { if (g_tap && g_tap->fn) g_tap->fn(__VA_ARGS__); } while (0)
+
+/* PSX_GR_SKIP_TEXTURED=1 (diagnostic): textured primitives are dropped before
+ * any backend or tap sees them, so untextured rendering can be compared
+ * between renderers. Changes what the game shows; never for play. */
+/* PSX_GR_TEXTURED_AS_SHADES=1 (diagnostic): textured primitives are redrawn
+ * as untextured gouraud shapes, coloured per texture page/CLUT and lit by
+ * their vertex colours, through the same entry points. Every renderer then
+ * draws the game's full geometry, overlaps and blending without textures. */
+static int g_skip_textured = -1, g_as_shades;
+static int skip_textured(void) {
+    if (g_skip_textured < 0) {
+        const char *e = getenv("PSX_GR_SKIP_TEXTURED");
+        const char *s = getenv("PSX_GR_TEXTURED_AS_SHADES");
+        g_as_shades = s && s[0] == '1';
+        g_skip_textured = (e && e[0] == '1') || g_as_shades;
+    }
+    return g_skip_textured;
+}
+static uint16_t shade_of(uint16_t tp, uint16_t cx, uint16_t cy, uint32_t c24) {
+    uint32_t h = (uint32_t)tp * 2654435761u ^ (uint32_t)cx * 40503u ^ (uint32_t)cy * 97u;
+    int base[3] = { 8 + (int)(h & 15), 8 + (int)((h >> 4) & 15), 8 + (int)((h >> 8) & 15) };
+    int out = 0;
+    for (int i = 0; i < 3; i++) {
+        int v = base[i] * (int)((c24 >> (8 * i)) & 0xFF) / 128;
+        out |= (v > 31 ? 31 : v) << (5 * i);
+    }
+    return (uint16_t)out;
+}
+
 /* ---- Dispatch wrappers (one line each; forward to the active backend) ---- */
 void gr_init(uint16_t *vram)                         { gpu_hd_textures_set_vram(vram); g_b->init(vram); g_hd_offset_x = g_hd_offset_y = 0; g_hd_texture_window = 0; g_hd_semi = g_hd_perspective = 0; }
 void gr_set_scale(int scale)                         { g_b->set_scale(scale); }
 int  gr_scale(void)                                  { return g_b->scale(); }
 void gr_set_texture_filter(int bilinear)             { g_b->set_texture_filter(bilinear); }
 int  gr_texture_filter(void)                         { return g_b->texture_filter(); }
-void gr_set_semi_transparency(int e, int m)          { g_b->set_semi_transparency(e, m); g_hd_semi=e; }
-void gr_set_mask_bits(int s, int c)                  { g_b->set_mask_bits(s, c); }
-void gr_set_texture_window(uint32_t raw)             { vram_census_texture_window(raw); g_b->set_texture_window(raw); g_hd_texture_window=raw; }
-void gr_set_color_modulation(int r, int g, int b, int raw) { g_b->set_color_modulation(r, g, b, raw); }
+void gr_set_semi_transparency(int e, int m)          { g_b->set_semi_transparency(e, m); g_hd_semi=e; TAP(set_semi_transparency, e, m); }
+void gr_set_mask_bits(int s, int c)                  { g_b->set_mask_bits(s, c); TAP(set_mask_bits, s, c); }
+void gr_set_texture_window(uint32_t raw)             { vram_census_texture_window(raw); g_b->set_texture_window(raw); g_hd_texture_window=raw; TAP(set_texture_window, raw); }
+void gr_set_color_modulation(int r, int g, int b, int raw) { g_b->set_color_modulation(r, g, b, raw); TAP(set_color_modulation, r, g, b, raw); }
 void gr_set_precise_triangle(int enabled, int32_t x0, int32_t y0, int32_t x1, int32_t y1,
                              int32_t x2, int32_t y2) {
     if (g_b->set_precise_triangle)
@@ -191,13 +228,19 @@ void gr_set_perspective_triangle(int enabled, float q0, float q1, float q2) {
 }
 void gr_set_dither(int enabled) {
     if (g_b->set_dither) g_b->set_dither(enabled);
+    TAP(set_dither, enabled);
 }
 void gr_set_depth_triangle(int enabled, float z0, float z1, float z2) {
     if (g_b->set_depth_triangle)
         g_b->set_depth_triangle(enabled, z0, z1, z2);
 }
-void gr_fill_rect(int x, int y, int w, int h, uint16_t c)  { if (CEN) vram_census_fill(x, y, w, h); g_b->fill_rect(x, y, w, h, c); hd_note(GR_HD_NOTE_INVALIDATE, x, y, w, h, NULL); }
+void gr_fill_rect(int x, int y, int w, int h, uint16_t c)  { if (CEN) vram_census_fill(x, y, w, h); g_b->fill_rect(x, y, w, h, c); hd_note(GR_HD_NOTE_INVALIDATE, x, y, w, h, NULL); TAP(fill_rect, x, y, w, h, c); }
+static void gr_copy_rect_body(int sx, int sy, int dx, int dy, int w, int h);
 void gr_copy_rect(int sx, int sy, int dx, int dy, int w, int h) {
+    gr_copy_rect_body(sx, sy, dx, dy, w, h);
+    TAP(copy_rect, sx, sy, dx, dy, w, h);
+}
+static void gr_copy_rect_body(int sx, int sy, int dx, int dy, int w, int h) {
     if (CEN) vram_census_copy(sx, sy, dx, dy, w, h);
     if (!gpu_hd_textures_active()) { g_b->copy_rect(sx, sy, dx, dy, w, h); return; }
     if (g_b->hd_texture_note) {
@@ -216,6 +259,7 @@ void gr_copy_rect(int sx, int sy, int dx, int dy, int w, int h) {
 void gr_draw_flat_triangle(int x0, int y0, int x1, int y1, int x2, int y2, uint16_t c) {
     if (CEN) census_tri(x0, y0, x1, y1, x2, y2, 0, 0,0,0,0,0,0, 0,0,0,0);
     g_b->draw_flat_triangle(x0, y0, x1, y1, x2, y2, c);
+    TAP(draw_flat_triangle, x0, y0, x1, y1, x2, y2, c);
     hd_invalidate_triangle(x0, y0, x1, y1, x2, y2);
     g_hd_perspective = 0;
 }
@@ -223,16 +267,26 @@ void gr_draw_gouraud_triangle(int x0, int y0, uint16_t c0, int x1, int y1, uint1
                               int x2, int y2, uint16_t c2) {
     if (CEN) census_tri(x0, y0, x1, y1, x2, y2, 0, 0,0,0,0,0,0, 0,0,0,0);
     g_b->draw_gouraud_triangle(x0, y0, c0, x1, y1, c1, x2, y2, c2);
+    TAP(draw_gouraud_triangle, x0, y0, c0, x1, y1, c1, x2, y2, c2);
     hd_invalidate_triangle(x0, y0, x1, y1, x2, y2);
     g_hd_perspective = 0;
 }
 void gr_draw_textured_triangle(int x0, int y0, int u0, int v0, int x1, int y1, int u1, int v1,
                                int x2, int y2, int u2, int v2,
                                uint16_t clut_x, uint16_t clut_y, uint16_t texpage) {
+    if (skip_textured()) {
+        if (g_as_shades) {
+            const uint16_t c = shade_of(texpage, clut_x, clut_y, 0x808080u);
+            gr_draw_gouraud_triangle(x0, y0, c, x1, y1, c, x2, y2, c);
+        }
+        return;
+    }
     hd_observe_triangle(x0,y0,u0,v0,x1,y1,u1,v1,x2,y2,u2,v2,clut_x,clut_y,texpage);
     if (CEN) census_tri(x0, y0, x1, y1, x2, y2, 1, u0, v0, u1, v1, u2, v2, clut_x, clut_y, texpage, 0);
     g_b->draw_textured_triangle(x0, y0, u0, v0, x1, y1, u1, v1, x2, y2, u2, v2,
                                 clut_x, clut_y, texpage);
+    TAP(draw_textured_triangle, x0, y0, u0, v0, x1, y1, u1, v1, x2, y2, u2, v2,
+        clut_x, clut_y, texpage);
     hd_invalidate_triangle(x0, y0, x1, y1, x2, y2);
     g_hd_perspective = 0;
 }
@@ -241,16 +295,32 @@ void gr_draw_shaded_textured_triangle(int x0, int y0, int u0, int v0, uint32_t c
                                       int x2, int y2, int u2, int v2, uint32_t c2,
                                       uint16_t clut_x, uint16_t clut_y,
                                       uint16_t texpage, int raw) {
+    if (skip_textured()) {
+        if (g_as_shades) {
+            const uint32_t n = 0x808080u;
+            gr_draw_gouraud_triangle(x0, y0, shade_of(texpage, clut_x, clut_y, raw ? n : c0),
+                                     x1, y1, shade_of(texpage, clut_x, clut_y, raw ? n : c1),
+                                     x2, y2, shade_of(texpage, clut_x, clut_y, raw ? n : c2));
+        }
+        return;
+    }
     hd_observe_triangle(x0,y0,u0,v0,x1,y1,u1,v1,x2,y2,u2,v2,clut_x,clut_y,texpage);
     if (CEN) census_tri(x0, y0, x1, y1, x2, y2, 1, u0, v0, u1, v1, u2, v2, clut_x, clut_y, texpage, raw);
     g_b->draw_shaded_textured_triangle(x0, y0, u0, v0, c0, x1, y1, u1, v1, c1,
                                        x2, y2, u2, v2, c2, clut_x, clut_y, texpage, raw);
+    TAP(draw_shaded_textured_triangle, x0, y0, u0, v0, c0, x1, y1, u1, v1, c1,
+        x2, y2, u2, v2, c2, clut_x, clut_y, texpage, raw);
     hd_invalidate_triangle(x0, y0, x1, y1, x2, y2);
     g_hd_perspective = 0;
 }
-void gr_draw_flat_rect(int x, int y, int w, int h, uint16_t c) { if (CEN && w > 0 && h > 0) vram_census_prim(x, y, x+w-1, y+h-1, 0, 0,0,0,0, 0,0,0, 0); g_b->draw_flat_rect(x, y, w, h, c); if (w > 0 && h > 0) hd_invalidate_draw(x,y,x+w-1,y+h-1); }
+void gr_draw_flat_rect(int x, int y, int w, int h, uint16_t c) { TAP(draw_flat_rect, x, y, w, h, c); if (CEN && w > 0 && h > 0) vram_census_prim(x, y, x+w-1, y+h-1, 0, 0,0,0,0, 0,0,0, 0); g_b->draw_flat_rect(x, y, w, h, c); if (w > 0 && h > 0) hd_invalidate_draw(x,y,x+w-1,y+h-1); }
 void gr_draw_textured_rect(int x, int y, int w, int h, int u, int v,
                            uint16_t clut_x, uint16_t clut_y, uint16_t texpage) {
+    if (skip_textured()) {
+        if (g_as_shades) gr_draw_flat_rect(x, y, w, h, shade_of(texpage, clut_x, clut_y, 0x808080u));
+        return;
+    }
+    TAP(draw_textured_rect, x, y, w, h, u, v, clut_x, clut_y, texpage);
     hd_observe_rect(u,v,u+w,v+h,clut_x,clut_y,texpage);
     if (CEN && w > 0 && h > 0) vram_census_prim(x, y, x+w-1, y+h-1, 1, u, v, u+w-1, v+h-1, clut_x, clut_y, texpage, 0);
     g_b->draw_textured_rect(x, y, w, h, u, v, clut_x, clut_y, texpage);
@@ -258,15 +328,21 @@ void gr_draw_textured_rect(int x, int y, int w, int h, int u, int v,
 }
 void gr_draw_textured_rect_scaled(int x, int y, int w, int h, int u0, int v0, int u1, int v1,
                                   uint16_t clut_x, uint16_t clut_y, uint16_t texpage) {
+    if (skip_textured()) {
+        if (g_as_shades) gr_draw_flat_rect(x, y, w, h, shade_of(texpage, clut_x, clut_y, 0x808080u));
+        return;
+    }
+    TAP(draw_textured_rect_scaled, x, y, w, h, u0, v0, u1, v1, clut_x, clut_y, texpage);
     hd_observe_rect(u0,v0,u1,v1,clut_x,clut_y,texpage);
     if (CEN && w > 0 && h > 0) vram_census_prim(x, y, x+w-1, y+h-1, 1, u0 < u1 ? u0 : u1, v0 < v1 ? v0 : v1, u0 < u1 ? u1 : u0, v0 < v1 ? v1 : v0, clut_x, clut_y, texpage, 0);
     g_b->draw_textured_rect_scaled(x, y, w, h, u0, v0, u1, v1, clut_x, clut_y, texpage);
     if (w > 0 && h > 0) hd_invalidate_draw(x,y,x+w-1,y+h-1);
 }
-void gr_draw_line(int x0, int y0, int x1, int y1, uint16_t c) { if (CEN) census_tri(x0, y0, x1, y1, x1, y1, 0, 0,0,0,0,0,0, 0,0,0,0); g_b->draw_line(x0, y0, x1, y1, c); hd_invalidate_triangle(x0,y0,x1,y1,x1,y1); }
+void gr_draw_line(int x0, int y0, int x1, int y1, uint16_t c) { TAP(draw_line, x0, y0, x1, y1, c); if (CEN) census_tri(x0, y0, x1, y1, x1, y1, 0, 0,0,0,0,0,0, 0,0,0,0); g_b->draw_line(x0, y0, x1, y1, c); hd_invalidate_triangle(x0,y0,x1,y1,x1,y1); }
 void gr_draw_shaded_line(int x0, int y0, uint16_t c0, int x1, int y1, uint16_t c1) {
     if (CEN) census_tri(x0, y0, x1, y1, x1, y1, 0, 0,0,0,0,0,0, 0,0,0,0);
     g_b->draw_shaded_line(x0, y0, c0, x1, y1, c1);
+    TAP(draw_shaded_line, x0, y0, c0, x1, y1, c1);
     hd_invalidate_triangle(x0,y0,x1,y1,x1,y1);
 }
 int gr_render_display(uint32_t *o, int p, int dx, int dy, int dw, int dh) {
@@ -286,11 +362,11 @@ void gr_vram_upload_commit(int x, int y, int w, int h, const uint16_t *d) {
 void gr_vram_upload_set_open(int open) { if (g_b->vram_upload_open) g_b->vram_upload_open(open ? 1 : 0); }
 void gr_vram_write(int x, int y, uint16_t pixel)     { g_b->vram_write(x, y, pixel); hd_note(GR_HD_NOTE_INVALIDATE, x, y, 1, 1, NULL); }
 uint16_t gr_vram_read(int x, int y)                  { return g_b->vram_read(x, y); }
-void gr_vram_transfer_in(int x, int y, int w, int h, const uint16_t *d)  { if (CEN) vram_census_upload(x, y, w, h); g_b->vram_transfer_in(x, y, w, h, d); hd_note(GR_HD_NOTE_TRACK_UPLOAD, x, y, w, h, d); }
+void gr_vram_transfer_in(int x, int y, int w, int h, const uint16_t *d)  { TAP(vram_transfer_in, x, y, w, h, d); if (CEN) vram_census_upload(x, y, w, h); g_b->vram_transfer_in(x, y, w, h, d); hd_note(GR_HD_NOTE_TRACK_UPLOAD, x, y, w, h, d); }
 void gr_vram_transfer_out(int x, int y, int w, int h, uint16_t *d)       { g_b->vram_transfer_out(x, y, w, h, d); }
-void gr_set_draw_area(int x1, int y1, int x2, int y2){ vram_census_draw_area(x1, y1, x2, y2); g_b->set_draw_area(x1, y1, x2, y2); }
+void gr_set_draw_area(int x1, int y1, int x2, int y2){ TAP(set_draw_area, x1, y1, x2, y2); vram_census_draw_area(x1, y1, x2, y2); g_b->set_draw_area(x1, y1, x2, y2); }
 void gr_get_draw_area(int *x1, int *y1, int *x2, int *y2) { g_b->get_draw_area(x1, y1, x2, y2); }
-void gr_set_draw_offset(int x, int y)                { vram_census_draw_offset(x, y); g_b->set_draw_offset(x, y); g_hd_offset_x=x; g_hd_offset_y=y; }
+void gr_set_draw_offset(int x, int y)                { TAP(set_draw_offset, x, y); vram_census_draw_offset(x, y); g_b->set_draw_offset(x, y); g_hd_offset_x=x; g_hd_offset_y=y; }
 
 /* Native-wide compositor — present only on backends that supply it. */
 int  gr_wide_supported(void) { return g_b->render_wide_display != 0; }
