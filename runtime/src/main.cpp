@@ -82,6 +82,7 @@ extern "C" uint32_t g_guest_last_store_addr, g_guest_last_store_val;
 #include "present_ring.h"
 #include "load_transition_ring.h"
 #include "gpu_sw_renderer.h"
+#include "gpu_vram_census.h"
 #include "gpu_render.h"
 #include "gpu_gl_renderer.h"
 #include "render_pass.h"
@@ -10597,6 +10598,9 @@ static NetplayVblankEpilogue sdl_vblank_present_body(void) {
         s_disabled_frame_presented = false;
         s_force_present_after_load = false;
         w = di.width; h = di.height;
+        if (g_vram_census_on)
+            vram_census_present((int)di.display_x, (int)di.display_y,
+                                (int)di.width, (int)di.height, di.depth24);
         present_h = psx_display_present_height(
             di.depth24, h, di.screen_height);
         /* 4:3-pinned frames: the pre-game BIOS boot, plus (once engaged) every

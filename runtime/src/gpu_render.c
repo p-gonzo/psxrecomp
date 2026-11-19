@@ -14,6 +14,7 @@
 #include "gpu_sw_renderer.h"
 #include "gpu_hd_textures.h"
 #include "gpu_uv.h"
+#include "gpu_vram_census.h"
 #include <stdio.h>
 
 static const GpuRenderBackend SW_BACKEND = {
@@ -111,6 +112,16 @@ static void hd_invalidate_draw(int x0, int y0, int x1, int y1) {
     if (x0 <= x1 && y0 <= y1)
         hd_note(GR_HD_NOTE_INVALIDATE, x0, y0, x1 - x0 + 1, y1 - y0 + 1, NULL);
 }
+#define CEN (g_vram_census_on)
+static inline int min3(int a, int b, int c) { int m = a < b ? a : b; return m < c ? m : c; }
+static inline int max3(int a, int b, int c) { int m = a > b ? a : b; return m > c ? m : c; }
+static void census_tri(int x0, int y0, int x1, int y1, int x2, int y2, int tex,
+                       int u0, int v0, int u1, int v1, int u2, int v2,
+                       uint16_t cx, uint16_t cy, uint16_t tp, int raw) {
+    vram_census_prim(min3(x0, x1, x2), min3(y0, y1, y2), max3(x0, x1, x2), max3(y0, y1, y2),
+                     tex, min3(u0, u1, u2), min3(v0, v1, v2), max3(u0, u1, u2), max3(v0, v1, v2),
+                     cx, cy, tp, raw);
+}
 static void hd_invalidate_triangle(int x0, int y0, int x1, int y1, int x2, int y2) {
     int xmin = x0, xmax = x0, ymin = y0, ymax = y0;
     if (x1 < xmin) xmin = x1; if (x2 < xmin) xmin = x2;
@@ -166,7 +177,7 @@ void gr_set_texture_filter(int bilinear)             { g_b->set_texture_filter(b
 int  gr_texture_filter(void)                         { return g_b->texture_filter(); }
 void gr_set_semi_transparency(int e, int m)          { g_b->set_semi_transparency(e, m); g_hd_semi=e; }
 void gr_set_mask_bits(int s, int c)                  { g_b->set_mask_bits(s, c); }
-void gr_set_texture_window(uint32_t raw)             { g_b->set_texture_window(raw); g_hd_texture_window=raw; }
+void gr_set_texture_window(uint32_t raw)             { vram_census_texture_window(raw); g_b->set_texture_window(raw); g_hd_texture_window=raw; }
 void gr_set_color_modulation(int r, int g, int b, int raw) { g_b->set_color_modulation(r, g, b, raw); }
 void gr_set_precise_triangle(int enabled, int32_t x0, int32_t y0, int32_t x1, int32_t y1,
                              int32_t x2, int32_t y2) {
@@ -185,8 +196,9 @@ void gr_set_depth_triangle(int enabled, float z0, float z1, float z2) {
     if (g_b->set_depth_triangle)
         g_b->set_depth_triangle(enabled, z0, z1, z2);
 }
-void gr_fill_rect(int x, int y, int w, int h, uint16_t c)  { g_b->fill_rect(x, y, w, h, c); hd_note(GR_HD_NOTE_INVALIDATE, x, y, w, h, NULL); }
+void gr_fill_rect(int x, int y, int w, int h, uint16_t c)  { if (CEN) vram_census_fill(x, y, w, h); g_b->fill_rect(x, y, w, h, c); hd_note(GR_HD_NOTE_INVALIDATE, x, y, w, h, NULL); }
 void gr_copy_rect(int sx, int sy, int dx, int dy, int w, int h) {
+    if (CEN) vram_census_copy(sx, sy, dx, dy, w, h);
     if (!gpu_hd_textures_active()) { g_b->copy_rect(sx, sy, dx, dy, w, h); return; }
     if (g_b->hd_texture_note) {
         /* Pre/post copy observations against the backend's own VRAM. */
@@ -202,12 +214,14 @@ void gr_copy_rect(int sx, int sy, int dx, int dy, int w, int h) {
     gpu_hd_textures_end_copy();
 }
 void gr_draw_flat_triangle(int x0, int y0, int x1, int y1, int x2, int y2, uint16_t c) {
+    if (CEN) census_tri(x0, y0, x1, y1, x2, y2, 0, 0,0,0,0,0,0, 0,0,0,0);
     g_b->draw_flat_triangle(x0, y0, x1, y1, x2, y2, c);
     hd_invalidate_triangle(x0, y0, x1, y1, x2, y2);
     g_hd_perspective = 0;
 }
 void gr_draw_gouraud_triangle(int x0, int y0, uint16_t c0, int x1, int y1, uint16_t c1,
                               int x2, int y2, uint16_t c2) {
+    if (CEN) census_tri(x0, y0, x1, y1, x2, y2, 0, 0,0,0,0,0,0, 0,0,0,0);
     g_b->draw_gouraud_triangle(x0, y0, c0, x1, y1, c1, x2, y2, c2);
     hd_invalidate_triangle(x0, y0, x1, y1, x2, y2);
     g_hd_perspective = 0;
@@ -216,6 +230,7 @@ void gr_draw_textured_triangle(int x0, int y0, int u0, int v0, int x1, int y1, i
                                int x2, int y2, int u2, int v2,
                                uint16_t clut_x, uint16_t clut_y, uint16_t texpage) {
     hd_observe_triangle(x0,y0,u0,v0,x1,y1,u1,v1,x2,y2,u2,v2,clut_x,clut_y,texpage);
+    if (CEN) census_tri(x0, y0, x1, y1, x2, y2, 1, u0, v0, u1, v1, u2, v2, clut_x, clut_y, texpage, 0);
     g_b->draw_textured_triangle(x0, y0, u0, v0, x1, y1, u1, v1, x2, y2, u2, v2,
                                 clut_x, clut_y, texpage);
     hd_invalidate_triangle(x0, y0, x1, y1, x2, y2);
@@ -227,26 +242,30 @@ void gr_draw_shaded_textured_triangle(int x0, int y0, int u0, int v0, uint32_t c
                                       uint16_t clut_x, uint16_t clut_y,
                                       uint16_t texpage, int raw) {
     hd_observe_triangle(x0,y0,u0,v0,x1,y1,u1,v1,x2,y2,u2,v2,clut_x,clut_y,texpage);
+    if (CEN) census_tri(x0, y0, x1, y1, x2, y2, 1, u0, v0, u1, v1, u2, v2, clut_x, clut_y, texpage, raw);
     g_b->draw_shaded_textured_triangle(x0, y0, u0, v0, c0, x1, y1, u1, v1, c1,
                                        x2, y2, u2, v2, c2, clut_x, clut_y, texpage, raw);
     hd_invalidate_triangle(x0, y0, x1, y1, x2, y2);
     g_hd_perspective = 0;
 }
-void gr_draw_flat_rect(int x, int y, int w, int h, uint16_t c) { g_b->draw_flat_rect(x, y, w, h, c); if (w > 0 && h > 0) hd_invalidate_draw(x,y,x+w-1,y+h-1); }
+void gr_draw_flat_rect(int x, int y, int w, int h, uint16_t c) { if (CEN && w > 0 && h > 0) vram_census_prim(x, y, x+w-1, y+h-1, 0, 0,0,0,0, 0,0,0, 0); g_b->draw_flat_rect(x, y, w, h, c); if (w > 0 && h > 0) hd_invalidate_draw(x,y,x+w-1,y+h-1); }
 void gr_draw_textured_rect(int x, int y, int w, int h, int u, int v,
                            uint16_t clut_x, uint16_t clut_y, uint16_t texpage) {
     hd_observe_rect(u,v,u+w,v+h,clut_x,clut_y,texpage);
+    if (CEN && w > 0 && h > 0) vram_census_prim(x, y, x+w-1, y+h-1, 1, u, v, u+w-1, v+h-1, clut_x, clut_y, texpage, 0);
     g_b->draw_textured_rect(x, y, w, h, u, v, clut_x, clut_y, texpage);
     if (w > 0 && h > 0) hd_invalidate_draw(x,y,x+w-1,y+h-1);
 }
 void gr_draw_textured_rect_scaled(int x, int y, int w, int h, int u0, int v0, int u1, int v1,
                                   uint16_t clut_x, uint16_t clut_y, uint16_t texpage) {
     hd_observe_rect(u0,v0,u1,v1,clut_x,clut_y,texpage);
+    if (CEN && w > 0 && h > 0) vram_census_prim(x, y, x+w-1, y+h-1, 1, u0 < u1 ? u0 : u1, v0 < v1 ? v0 : v1, u0 < u1 ? u1 : u0, v0 < v1 ? v1 : v0, clut_x, clut_y, texpage, 0);
     g_b->draw_textured_rect_scaled(x, y, w, h, u0, v0, u1, v1, clut_x, clut_y, texpage);
     if (w > 0 && h > 0) hd_invalidate_draw(x,y,x+w-1,y+h-1);
 }
-void gr_draw_line(int x0, int y0, int x1, int y1, uint16_t c) { g_b->draw_line(x0, y0, x1, y1, c); hd_invalidate_triangle(x0,y0,x1,y1,x1,y1); }
+void gr_draw_line(int x0, int y0, int x1, int y1, uint16_t c) { if (CEN) census_tri(x0, y0, x1, y1, x1, y1, 0, 0,0,0,0,0,0, 0,0,0,0); g_b->draw_line(x0, y0, x1, y1, c); hd_invalidate_triangle(x0,y0,x1,y1,x1,y1); }
 void gr_draw_shaded_line(int x0, int y0, uint16_t c0, int x1, int y1, uint16_t c1) {
+    if (CEN) census_tri(x0, y0, x1, y1, x1, y1, 0, 0,0,0,0,0,0, 0,0,0,0);
     g_b->draw_shaded_line(x0, y0, c0, x1, y1, c1);
     hd_invalidate_triangle(x0,y0,x1,y1,x1,y1);
 }
@@ -267,11 +286,11 @@ void gr_vram_upload_commit(int x, int y, int w, int h, const uint16_t *d) {
 void gr_vram_upload_set_open(int open) { if (g_b->vram_upload_open) g_b->vram_upload_open(open ? 1 : 0); }
 void gr_vram_write(int x, int y, uint16_t pixel)     { g_b->vram_write(x, y, pixel); hd_note(GR_HD_NOTE_INVALIDATE, x, y, 1, 1, NULL); }
 uint16_t gr_vram_read(int x, int y)                  { return g_b->vram_read(x, y); }
-void gr_vram_transfer_in(int x, int y, int w, int h, const uint16_t *d)  { g_b->vram_transfer_in(x, y, w, h, d); hd_note(GR_HD_NOTE_TRACK_UPLOAD, x, y, w, h, d); }
+void gr_vram_transfer_in(int x, int y, int w, int h, const uint16_t *d)  { if (CEN) vram_census_upload(x, y, w, h); g_b->vram_transfer_in(x, y, w, h, d); hd_note(GR_HD_NOTE_TRACK_UPLOAD, x, y, w, h, d); }
 void gr_vram_transfer_out(int x, int y, int w, int h, uint16_t *d)       { g_b->vram_transfer_out(x, y, w, h, d); }
-void gr_set_draw_area(int x1, int y1, int x2, int y2){ g_b->set_draw_area(x1, y1, x2, y2); }
+void gr_set_draw_area(int x1, int y1, int x2, int y2){ vram_census_draw_area(x1, y1, x2, y2); g_b->set_draw_area(x1, y1, x2, y2); }
 void gr_get_draw_area(int *x1, int *y1, int *x2, int *y2) { g_b->get_draw_area(x1, y1, x2, y2); }
-void gr_set_draw_offset(int x, int y)                { g_b->set_draw_offset(x, y); g_hd_offset_x=x; g_hd_offset_y=y; }
+void gr_set_draw_offset(int x, int y)                { vram_census_draw_offset(x, y); g_b->set_draw_offset(x, y); g_hd_offset_x=x; g_hd_offset_y=y; }
 
 /* Native-wide compositor — present only on backends that supply it. */
 int  gr_wide_supported(void) { return g_b->render_wide_display != 0; }

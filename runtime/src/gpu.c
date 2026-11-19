@@ -21,6 +21,7 @@
 #include "gpu_primitive_reject.h"
 #include "gpu_sw_renderer.h"
 #include "gpu_vram_dirty.h"
+#include "gpu_vram_census.h"
 #include "gpu_render.h"
 #include "ws_view_anchor.h"
 #include "text_xlate.h"
@@ -6794,6 +6795,9 @@ static void gp0_exec_vram_to_cpu(void) {
     vram_read_col = 0;
     vram_read_row = 0;
     vram_read_active = 1;
+    if (g_vram_census_on)
+        vram_census_cpu_read((int)vram_read_x, (int)vram_read_y,
+                             (int)vram_read_w, (int)vram_read_h);
 }
 
 /* Determine how many words a GP0 command requires (header only, not counting

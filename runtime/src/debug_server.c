@@ -47,6 +47,7 @@
 #include "dma.h"
 #include "gpu.h"
 #include "gpu_hd_textures.h"
+#include "gpu_vram_census.h"
 #include "gpu_render.h"   /* gr_scale + gr_render_display_hires (screenshot_hires) */
 #include "present_ring.h"
 #include "gpu_timeline.h"
@@ -5107,6 +5108,18 @@ static void handle_ping(int id, const char *json)
              (unsigned long long)s_unknown_seq,
              s_unknown_unique_count,
              (unsigned long long)psx_segment_miss_total());
+}
+
+/* VRAM census for the host-GPU renderer design (gpu_vram_census.h).
+ * {"cmd":"vram_census","reset":1} arms it and zeroes the counts;
+ * {"cmd":"vram_census","stop":1} disarms; with neither, returns the counts. */
+static void handle_vram_census(int id, const char *json)
+{
+    if (json_get_int(json, "stop", 0)) vram_census_reset(0);
+    else if (json_get_int(json, "reset", 0)) vram_census_reset(1);
+    static char buf[16384];
+    vram_census_json(buf, sizeof(buf));
+    send_fmt("{\"id\":%d,\"ok\":true,\"census\":%s}", id, buf);
 }
 
 static void handle_frame(int id, const char *json)
@@ -16802,6 +16815,7 @@ static const CmdEntry s_commands[] = {
     { "xprobe_watch",      handle_xprobe_watch },
     { "ce_profile",        handle_ce_profile },
     { "frame",             handle_frame },
+    { "vram_census",       handle_vram_census },
     { "frame_fingerprint", handle_frame_fingerprint },
     { "record_frame",      handle_record_frame },
     { "record_frame_dump", handle_record_frame_dump },
