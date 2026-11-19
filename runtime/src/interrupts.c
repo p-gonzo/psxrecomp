@@ -2450,6 +2450,13 @@ void psx_check_interrupts(CPUState *cpu) {
     uint32_t pc = g_dirty_safe_resume_pc ? g_dirty_safe_resume_pc : s_compiled_interrupt_resume_pc;
     PSX_BLOCK_EDGE(cpu, pc);
 }
+
+#if PSX_LEAN_HOST
+/* Out-of-line block edge for constrained hosts (psx_block_edge.h). */
+void psx_block_edge_call(CPUState *cpu, uint32_t pc) {
+    psx_block_edge(cpu, pc);
+}
+#endif
 #endif
 
 void psx_check_interrupts_at(CPUState* cpu, uint32_t resume_pc) {

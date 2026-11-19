@@ -158,7 +158,26 @@ PSX_BLOCK_INLINE int psx_block_edge_materialize(CPUState *cpu, uint32_t pc,
 PSX_BLOCK_INLINE void psx_block_edge(CPUState *cpu, uint32_t pc) {
     (void)psx_block_edge_impl(cpu, pc, NULL);
 }
+#ifndef PSX_LEAN_HOST
+#define PSX_LEAN_HOST 0
+#endif
+#if PSX_LEAN_HOST
+/* Constrained hosts: the same edge policy, compiled once (interrupts.c) and
+ * called from each generated block edge. Inlining it into every edge of a
+ * large game grows the code by megabytes (THPS2 on the 3DS: 22.6 -> 36.3 MB,
+ * more than its heap could spare); one call per edge keeps the size of the
+ * old path while ordinary edges still skip the full interrupt check. */
+#ifdef __cplusplus
+extern "C" {
+#endif
+void psx_block_edge_call(CPUState *cpu, uint32_t pc);
+#ifdef __cplusplus
+}
+#endif
+#define PSX_BLOCK_EDGE(cpu, pc) psx_block_edge_call((cpu), (pc))
+#else
 #define PSX_BLOCK_EDGE(cpu, pc) psx_block_edge((cpu), (pc))
+#endif
 #else
 #ifdef PSX_ENABLE_BLOCK_CYCLES
 #define PSX_BLOCK_EDGE(cpu, pc) do { psx_cyc_bb_defer_flush(); \
