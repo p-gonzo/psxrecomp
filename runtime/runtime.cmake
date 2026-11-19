@@ -2513,6 +2513,15 @@ function(psxrecomp_add_runtime_target target)
     target_compile_definitions(${target} PRIVATE PSX_DIAG_CAPACITY_SHIFT=${_psx_diag_shift})
     unset(_psx_diag_shift)
 
+    # Constrained-host build profile (PSX_LEAN_HOST): compiles out diagnostic
+    # hooks on the per-store and per-dispatch paths (write history, parity,
+    # dispatch/stack/bail/function trace rings). Emulation is unchanged; the
+    # debug tooling that reads those rings has less or no history. OFF on
+    # desktops; meant for hosts like the 3DS where those hooks cost a large
+    # share of every frame.
+    option(PSX_LEAN_HOST "Compile out per-store/per-dispatch diagnostic hooks" OFF)
+    target_compile_definitions(${target} PRIVATE PSX_LEAN_HOST=$<BOOL:${PSX_LEAN_HOST}>)
+
     # Per-image disc digest cache (include/disc_content_hash.h). Empty = the
     # platform default: off on desktops (unchanged), on for the 3DS, where a
     # full-image SHA-256 at every launch takes over a minute.

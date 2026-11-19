@@ -1,6 +1,9 @@
 /* fntrace.c — runtime side of psx_dispatch call ring. See fntrace.h. */
 
 #include "fntrace.h"
+#ifndef PSX_LEAN_HOST
+#define PSX_LEAN_HOST 0
+#endif
 #include "psx_bss.h"
 #include "text_xlate.h"     /* on-the-fly string translation hook (framework) */
 #include "parity_trace.h"   /* general control-flow parity ring (native producer) */
@@ -149,6 +152,7 @@ void fntrace_record(CPUState* cpu, uint32_t target)
     /* The BIOS has completed the PS-X EXE load by the time it dispatches the
      * entry point. Apply the validated plan before the first guest instruction. */
     mod_runtime_on_dispatch(target);
+#if !PSX_LEAN_HOST   /* dispatch-tail ring (diagnostic) */
     {
         extern uint64_t psx_get_cycle_count(void);
         DispTailEntry *t = &g_disp_tail[g_disp_tail_seq % DISP_TAIL_CAP];
@@ -158,6 +162,8 @@ void fntrace_record(CPUState* cpu, uint32_t target)
         t->cycle  = psx_get_cycle_count();
         g_disp_tail_seq++;
     }
+#endif
+#if !PSX_LEAN_HOST   /* stack-domain ring (diagnostic) */
     {
         uint32_t sp_now = cpu->gpr[29];
         if (((sp_now ^ s_spdom_prev_sp) & 0xFFFF0000u) != 0u) {
@@ -179,6 +185,7 @@ void fntrace_record(CPUState* cpu, uint32_t target)
             s_spdom_prev_sp = sp_now;
         }
     }
+#endif
 
     /* On-the-fly string translation (framework feature — text_xlate.cpp). The
      * generated psx_dispatch_impl calls us at the top of each dispatch iteration
@@ -192,10 +199,12 @@ void fntrace_record(CPUState* cpu, uint32_t target)
     /* General parity ring: one DISPATCH row per leader while current_tcb matches
      * the watched thread. Gated by the cheap armed flag so disarmed runs pay only
      * a single branch on this hot path. pc==target (the leader being entered). */
+#if !PSX_LEAN_HOST   /* parity trace (diagnostic) */
     if (parity_trace_is_armed()) {
         parity_trace_record(PARITY_KIND_DISPATCH, target, cpu->gpr[31],
                             cpu->gpr[29], target, parity_rw_cb, cpu);
     }
+#endif
 
     /* Dispatch-level bail-source capture (Tomba 2 wild-return spin, runtime-only,
      * no BIOS regen). The generated psx_dispatch_impl calls us at the top of each
@@ -206,6 +215,7 @@ void fntrace_record(CPUState* cpu, uint32_t target)
      * the traps.c bail ledger (surfaced in the heartbeat as bail_top_site_ra /
      * bail_top_wild_pc) so the dominant wild-returning function is readable even
      * when the bail storm makes the window "Not Responding". */
+#if !PSX_LEAN_HOST   /* bail record (diagnostic) */
     {
         extern uint64_t g_psx_bail_flattened;
         extern uint32_t g_debug_current_func_addr;
@@ -218,6 +228,7 @@ void fntrace_record(CPUState* cpu, uint32_t target)
             psx_bail_record(g_debug_current_func_addr, cpu->gpr[29], target, cpu->gpr[31]);
         }
     }
+#endif
 
     if (!s_game_started && s_game_entry_phys != 0) {
         /* Latch on the entry_pc dispatch (the common case) OR the first dispatch
@@ -240,6 +251,7 @@ void fntrace_record(CPUState* cpu, uint32_t target)
     }
     /* Honor the one-shot capture freeze (insn_freeze): once latched, the ring
      * preserves the pre-divergence window instead of evicting it. */
+#if !PSX_LEAN_HOST   /* armed function-trace ring (diagnostic) */
     extern int g_insn_log_frozen;
     int was_frozen = g_insn_log_frozen;
     /* Null-page dispatch guard: a dispatch whose phys target sits below the
@@ -261,6 +273,7 @@ void fntrace_record(CPUState* cpu, uint32_t target)
     e->a3     = cpu->gpr[7];
     e->s3     = cpu->gpr[19];
     e->sp     = cpu->gpr[29];
+#endif
 }
 
 void fntrace_arm(uint32_t target) {

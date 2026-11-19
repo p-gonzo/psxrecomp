@@ -10305,6 +10305,22 @@ static NetplayVblankEpilogue sdl_vblank_present_body(void) {
     }
 #endif
 
+    /* PSX_UNPACED=1: benchmark the whole frame (simulation, rendering and
+     * presentation) as fast as the host allows. Unlike TCP turbo it keeps
+     * presenting every frame and needs no debug server, so a build without
+     * debug tools (the configuration a constrained host ships) can be timed.
+     * Pair with PSX_VSYNC=0 so the present itself does not wait for vsync. */
+    {
+        static int s_unpaced = -1;
+        if (s_unpaced < 0) {
+            const char *e = std::getenv("PSX_UNPACED");
+            s_unpaced = (e && e[0] == '1') ? 1 : 0;
+            if (s_unpaced)
+                std::fprintf(stdout, "psxrecomp: PSX_UNPACED=1: no wall-clock pacing (benchmark)\n");
+        }
+        if (s_unpaced) ep.skip_pace = 1;
+    }
+
     bool manual_turbo_active = false;
     bool turbo_load_paced = false;
 
@@ -10435,7 +10451,10 @@ static NetplayVblankEpilogue sdl_vblank_present_body(void) {
      * resim. */
     if (!psx_netplay_active() && !psx_selfcheck_resim_active()) {
         uint64_t perf_start = runtime_perf_section_begin();
-        if (!manual_turbo_active && !turbo_load_paced && present_should_wall_pace()) {
+        /* ep.skip_pace reaches here set only by PSX_UNPACED (the other paths
+         * that set it return early). */
+        if (!manual_turbo_active && !turbo_load_paced && !ep.skip_pace &&
+            present_should_wall_pace()) {
             const uint64_t dyn_t0 = SDL_GetPerformanceCounter();
             frame_pacer_wait(&s_frame_pacer, g_frame_period_ms);
             const uint64_t waited = SDL_GetPerformanceCounter() - dyn_t0;

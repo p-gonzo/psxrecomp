@@ -9,6 +9,9 @@
  */
 
 #include "cpu_state.h"
+#ifndef PSX_LEAN_HOST
+#define PSX_LEAN_HOST 0
+#endif
 #include "cdrom.h"
 #include "crash_trace.h"
 #include "dma.h"
@@ -685,7 +688,20 @@ uint32_t g_psx_text_write_lo = 0, g_psx_text_write_hi = 0;
 static uint32_t *text_equal_bits = NULL;
 static uint32_t text_equal_words = 0;   /* text words covered */
 
+/* Words that belong to some static function's verified code ranges. A store
+ * to one of them is a code change (self-modifying code); stores to the other
+ * words of a code page (THPS2's variables) are not. */
+static uint32_t *text_code_bits = NULL;
+
+/* Bumped by everything that can change whether a verified range still holds
+ * the reference bytes: a guarded store to a code word, a page in the text
+ * turning runtime-dirty, a restore, a reset, a bless, a registration.
+ * dirty_ram_text_native_ok_ranges_from caches each range set's verdict
+ * against it, so a call site whose code nothing touched answers in O(1). */
+static uint32_t g_text_code_gen = 1;
+
 static void text_equal_forget_all(void) {
+    ++g_text_code_gen;
     if (text_equal_bits) memset(text_equal_bits, 0, ((text_equal_words + 31u) / 32u) * 4u);
 }
 
@@ -697,6 +713,7 @@ static void text_equal_forget_range(uint32_t phys, uint32_t len) {
     if (lo < g_psx_text_write_lo) lo = g_psx_text_write_lo;
     if (hi > g_psx_text_write_hi) hi = g_psx_text_write_hi;
     if (hi <= lo) return;
+    ++g_text_code_gen;   /* text bytes may have changed without a guarded store */
     uint32_t w0 = (lo - g_psx_text_write_lo) >> 2;
     uint32_t w1 = (hi - g_psx_text_write_lo + 3u) >> 2;
     if (w1 > text_equal_words) w1 = text_equal_words;
@@ -709,7 +726,10 @@ static void text_equal_note_verified(uint32_t phys, uint32_t len) {
     uint32_t w0 = (phys - g_psx_text_write_lo + 3u) >> 2;
     uint32_t w1 = (phys + len - g_psx_text_write_lo) >> 2;
     if (w1 > text_equal_words) w1 = text_equal_words;
-    for (uint32_t w = w0; w < w1; w++) text_equal_bits[w >> 5] |= 1u << (w & 31u);
+    for (uint32_t w = w0; w < w1; w++) {
+        text_equal_bits[w >> 5] |= 1u << (w & 31u);
+        if (text_code_bits) text_code_bits[w >> 5] |= 1u << (w & 31u);
+    }
 }
 
 /* PSX_TEXT_EQUAL_BITS=0 turns the word-precise path off for one run (A/B
@@ -773,9 +793,16 @@ void dirty_ram_register_text_image(uint32_t phys_lo, const uint8_t *bytes,
     g_psx_text_write_lo = phys_lo;
     g_psx_text_write_hi = phys_lo + len;
     free(text_equal_bits);
+    free(text_code_bits);
     text_equal_words = len / 4u;
     text_equal_bits = (uint32_t *)calloc((text_equal_words + 31u) / 32u, 4u);
-    if (!text_equal_bits) text_equal_words = 0;   /* no bits: always compare */
+    text_code_bits = (uint32_t *)calloc((text_equal_words + 31u) / 32u, 4u);
+    if (!text_equal_bits || !text_code_bits) {   /* no bits: always compare */
+        free(text_equal_bits); free(text_code_bits);
+        text_equal_bits = text_code_bits = NULL;
+        text_equal_words = 0;
+    }
+    ++g_text_code_gen;
     memset(text_modified_bitmap, 0, sizeof(text_modified_bitmap));
     memset(text_diverged_bitmap, 0, sizeof(text_diverged_bitmap));
     memset(text_foreign_bitmap, 0, sizeof(text_foreign_bitmap));
@@ -846,6 +873,8 @@ static inline void text_guard_note_write(uint32_t phys, uint32_t val, int size) 
                 text_equal_bits[w >> 5] |= 1u << (w & 31u);
             else
                 text_equal_bits[w >> 5] &= ~(1u << (w & 31u));
+            if (text_code_bits[w >> 5] & (1u << (w & 31u)))
+                ++g_text_code_gen;   /* a store into verified code */
         }
     }
 }
@@ -909,12 +938,29 @@ int dirty_ram_text_native_ok(uint32_t phys) {
  * clipped-away region, executing stale static code (CMR2 overlay
  * corruption, second locus 0x80016B34). A genuinely patched prologue now
  * blocks the whole entry to the interpreter — correct, merely slower. */
+/* Verdict cache: range set (the generated code's static array) -> the code
+ * generation it was last verified clean at. Only verdicts on pages that were
+ * not runtime-dirty are stored, so pages loaded by DMA or a loader keep the
+ * full check; a page turning dirty bumps the generation. */
+#define TEXT_VERDICT_CACHE 4096u
+static struct { const uint32_t *ranges; uint32_t count, gen; } s_text_verdict[TEXT_VERDICT_CACHE];
+static uint64_t text_verdict_hits;
+uint64_t dirty_ram_text_verdict_hits(void) { return text_verdict_hits; }
+
 int dirty_ram_text_native_ok_ranges_from(const uint32_t *lo_len_pairs,
                                          uint32_t count,
                                          uint32_t exec_pc) {
     if (!text_ref_image || !lo_len_pairs || count == 0) return 0;
     if (dirty_ram_force_interp()) return 0;
     (void)exec_pc;
+    const uint32_t slot = (uint32_t)(((uintptr_t)lo_len_pairs >> 3) & (TEXT_VERDICT_CACHE - 1u));
+    if (text_equal_enabled() && s_text_verdict[slot].ranges == lo_len_pairs &&
+        s_text_verdict[slot].count == count && s_text_verdict[slot].gen == g_text_code_gen) {
+        ++text_verdict_hits;
+        return 1;
+    }
+    const uint32_t gen_at_start = g_text_code_gen;
+    int cacheable = 1;   /* stays 1 while no page of the set is runtime-dirty */
     int any = 0;
     for (uint32_t i = 0; i < count; i++) {
         uint32_t phys = lo_len_pairs[i * 2u] & 0x1FFFFFFFu;
@@ -969,6 +1015,7 @@ int dirty_ram_text_native_ok_ranges_from(const uint32_t *lo_len_pairs,
             int dirty = 0;
             for (uint32_t p = p0; p <= p1 && !dirty; p++)
                 dirty = dirty_ram_is_dirty(p << DIRTY_RAM_PAGE_SHIFT);
+            if (dirty) cacheable = 0;
             if (!dirty && text_equal_known(phys, len)) {
                 ++text_equal_hits;
                 continue;
@@ -996,6 +1043,11 @@ int dirty_ram_text_native_ok_ranges_from(const uint32_t *lo_len_pairs,
     if (!any) {
         g_text_native_blocked++;
         return 0;
+    }
+    if (cacheable && g_text_code_gen == gen_at_start && text_equal_enabled()) {
+        s_text_verdict[slot].ranges = lo_len_pairs;
+        s_text_verdict[slot].count = count;
+        s_text_verdict[slot].gen = gen_at_start;
     }
     return 1;
 }
@@ -2229,7 +2281,9 @@ static inline void pgxp_untracked_store(uint32_t phys, uint32_t value, uint32_t 
 #if (defined(PSX_PGXP_OPERATIONS) && PSX_PGXP_OPERATIONS) || \
     (defined(PSX_PGXP_DEMAND_REGIONS) && PSX_PGXP_DEMAND_REGIONS)
 void psx_direct_precision_write(uint32_t phys, uint32_t old_value, uint32_t value, uint8_t width) {
+#if !PSX_LEAN_HOST   /* diagnostic store hooks (write history, parity, card trace) */
     debug_server_trace_write_check(phys, old_value, value, width);
+#endif
     pgxp_write_owned(phys, value, width);
 }
 #endif
@@ -2249,7 +2303,9 @@ static void isc_store(uint32_t addr, uint32_t val, uint32_t width) {
         uint32_t old = 0;
         for (uint32_t i = 0; i < width; i++)
             old |= (uint32_t)scratchpad[(off + i) & 0x3FFu] << (8u * i);
+#if !PSX_LEAN_HOST   /* diagnostic store hooks (write history, parity, card trace) */
         debug_server_trace_write_check(0x1F800000u + off, old, val, (uint8_t)width);
+#endif
         for (uint32_t i = 0; i < width; i++) {
             pgxp_untracked_store(0x1f800000u + ((off+i)&0x3ffu),val>>(8u*i),1u);
             scratchpad[(off + i) & 0x3FFu] = (uint8_t)(val >> (8u * i));
@@ -2483,10 +2539,12 @@ static void psx_write_word_raw(uint32_t addr, uint32_t val) {
                 }
             }
         }
+#if !PSX_LEAN_HOST   /* diagnostic store hooks (write history, parity, card trace) */
         if (phys == D44_PHYS) d44_note(phys, read_ram_word(phys), val);
         debug_server_trace_write_check(phys, read_ram_word(phys), val, 4);
         parity_trace_note_write(phys, 4, effective_store_pc());
         card_data_writes_check(phys, val, 4);
+#endif
         dirty_ram_mark_kernel_write(phys);
         text_guard_note_write(phys, val, 4);
         overlay_watch_note_write(phys, 4);
@@ -2520,12 +2578,14 @@ static void psx_write_word_raw(uint32_t addr, uint32_t val) {
     if (phys >= 0x1F000000u && phys <= 0x1F7FFFFFu) return;
     if (phys >= 0x1F800000u && phys <= 0x1F8003FFu) {
         uint32_t off = phys - 0x1F800000u;
+#if !PSX_LEAN_HOST   /* diagnostic store hooks (write history, parity, card trace) */
         debug_server_trace_write_check(phys,
             (uint32_t)scratchpad[off]
           | ((uint32_t)scratchpad[off + 1] << 8)
           | ((uint32_t)scratchpad[off + 2] << 16)
           | ((uint32_t)scratchpad[off + 3] << 24),
             val, 4);
+#endif
         pgxp_untracked_store(phys, val, 4u);
         scratchpad[off]     = (uint8_t)(val);
         scratchpad[off + 1] = (uint8_t)(val >> 8);
@@ -2620,9 +2680,11 @@ static void psx_write_half_raw(uint32_t addr, uint16_t val) {
     uint32_t phys = psx_phys_addr_store(addr);
 
     if (phys < RAM_SIZE) {
+#if !PSX_LEAN_HOST   /* diagnostic store hooks (write history, parity, card trace) */
         debug_server_trace_write_check(phys, (uint32_t)read_ram_half(phys), (uint32_t)val, 2);
         parity_trace_note_write(phys, 2, effective_store_pc());
         card_data_writes_check(phys, (uint32_t)val, 2);
+#endif
         dirty_ram_mark_kernel_write(phys);
         text_guard_note_write(phys, (uint32_t)val, 2);
         overlay_watch_note_write(phys, 2);
@@ -2655,9 +2717,11 @@ static void psx_write_half_raw(uint32_t addr, uint16_t val) {
     if (phys >= 0x1F000000u && phys <= 0x1F7FFFFFu) return;
     if (phys >= 0x1F800000u && phys <= 0x1F8003FFu) {
         uint32_t off = phys - 0x1F800000u;
+#if !PSX_LEAN_HOST   /* diagnostic store hooks (write history, parity, card trace) */
         debug_server_trace_write_check(phys,
             (uint32_t)scratchpad[off] | ((uint32_t)scratchpad[off + 1] << 8),
             (uint32_t)val, 2);
+#endif
         pgxp_untracked_store(phys, val, 2u);
         scratchpad[off]     = (uint8_t)(val);
         scratchpad[off + 1] = (uint8_t)(val >> 8);
@@ -3000,9 +3064,11 @@ static void psx_write_byte_raw(uint32_t addr, uint8_t val) {
     uint32_t phys = psx_phys_addr_store(addr);
 
     if (phys < RAM_SIZE) {
+#if !PSX_LEAN_HOST   /* diagnostic store hooks (write history, parity, card trace) */
         debug_server_trace_write_check(phys, (uint32_t)ram[phys], (uint32_t)val, 1);
         parity_trace_note_write(phys, 1, effective_store_pc());
         card_data_writes_check(phys, (uint32_t)val, 1);
+#endif
         dirty_ram_mark_kernel_write(phys);
         text_guard_note_write(phys, (uint32_t)val, 1);
         overlay_watch_note_write(phys, 1);
@@ -3031,8 +3097,10 @@ static void psx_write_byte_raw(uint32_t addr, uint8_t val) {
     }
     if (phys >= 0x1F000000u && phys <= 0x1F7FFFFFu) return;
     if (phys >= 0x1F800000u && phys <= 0x1F8003FFu) {
+#if !PSX_LEAN_HOST   /* diagnostic store hooks (write history, parity, card trace) */
         debug_server_trace_write_check(phys, (uint32_t)scratchpad[phys - 0x1F800000u],
                                        (uint32_t)val, 1);
+#endif
         pgxp_untracked_store(phys, val, 1u);
         scratchpad[phys - 0x1F800000u] = val;
         return;
