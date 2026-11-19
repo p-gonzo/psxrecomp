@@ -33,7 +33,8 @@ extern uint64_t psx_next_cycle_sample;
 #if defined(PSX_LEAN_HOST) && PSX_LEAN_HOST && \
     defined(PSX_OBSERVATION_TIME) && PSX_OBSERVATION_TIME && !defined(PSX_OVERLAY_DLL_BUILD)
 extern uint64_t g_psx_edge_horizon;
-#define PSX_EDGE_HORIZON_DROP() ((void)(g_psx_edge_horizon = 0u))
+extern int g_psx_island_mem_ok;   /* psx_island.h: refreshed with the horizon */
+#define PSX_EDGE_HORIZON_DROP() ((void)(g_psx_edge_horizon = 0u, g_psx_island_mem_ok = 0))
 #else
 #define PSX_EDGE_HORIZON_DROP() ((void)0)
 #endif

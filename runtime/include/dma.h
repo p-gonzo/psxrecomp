@@ -89,7 +89,13 @@ typedef struct DMATraceEntry {
     uint32_t pc;
 } DMATraceEntry;
 
+/* Diagnostic DMA history; constrained hosts (PSX_LEAN_HOST, the 3DS) keep a
+ * token ring so the program image fits (1.25 MB at full size). */
+#if defined(PSX_LEAN_HOST) && PSX_LEAN_HOST
+#define DMA_TRACE_CAP (1 << 8)
+#else
 #define DMA_TRACE_CAP (1 << 14)
+#endif
 #define DMA_CDROM_HISTORY_CAP PSX_DIAG_CAP((1 << 13))
 #define DMA_CDROM_HISTORY_WORDS 16
 

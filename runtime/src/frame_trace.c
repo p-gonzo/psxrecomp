@@ -14,7 +14,11 @@
 /* Compile-time ring bound. The live capacity is a power of two <= this, chosen
  * by PSX_FRAME_TRACE_CAP (default 2048, ~34 s of 60 Hz or ~68 s of 30 Hz pairs).
  * Static, so enabling the trace never adds an allocation to the frame path. */
+#if defined(PSX_LEAN_HOST) && PSX_LEAN_HOST
+#define PSX_FRAME_TRACE_MAX 64       /* diagnostic history; image size on lean hosts */
+#else
 #define PSX_FRAME_TRACE_MAX 4096
+#endif
 #define PSX_FRAME_TRACE_DEFAULT 2048
 
 static PSXFrameTraceRecord s_ring[PSX_FRAME_TRACE_MAX];

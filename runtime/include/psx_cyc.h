@@ -162,6 +162,7 @@ static inline void psx_cyc_charge(uint32_t cycles) {
         uint32_t prior = *g_psx_cyc_local_acc;
         if (cycles <= UINT32_MAX - prior && (prior + cycles) < (1u << 28)) {
             *g_psx_cyc_local_acc = prior + cycles;
+            PSX_EDGE_HORIZON_DROP();   /* an edge publishes the local sink */
             return;
         }
         *g_psx_cyc_local_acc = 0;
@@ -172,6 +173,7 @@ static inline void psx_cyc_charge(uint32_t cycles) {
             g_psx_cyc_local_acc = saved;
         }
         *g_psx_cyc_local_acc = cycles;
+        PSX_EDGE_HORIZON_DROP();
         return;
     }
     {

@@ -44,6 +44,8 @@ static uint64_t s_extra_horizon_cycles;
 static uint32_t s_extra_horizon_sites[48];
 static uint32_t s_extra_horizon_site_count;
 static uint32_t s_cfg_func;
+/* Island profile (psx_island.h): the configured function, for direct calls. */
+uint32_t g_psx_vsync_query_hle_func;
 static uint32_t s_cfg_counter;
 static uint32_t s_cfg_gpustat_ptr;
 static uint32_t s_cfg_timer1_ptr;
@@ -60,6 +62,7 @@ void psx_vsync_query_hle_configure(uint32_t func, uint32_t counter_addr,
                                    uint32_t timer1_ptr_addr,
                                    uint32_t timer1_cache_addr) {
     s_cfg_func = func;
+    g_psx_vsync_query_hle_func = func;
     s_cfg_counter = counter_addr;
     s_cfg_gpustat_ptr = gpustat_ptr_addr;
     s_cfg_timer1_ptr = timer1_ptr_addr;

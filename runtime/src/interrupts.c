@@ -2454,6 +2454,28 @@ void psx_check_interrupts(CPUState *cpu) {
 
 #if PSX_LEAN_HOST
 uint64_t g_psx_edge_horizon;   /* psx_cycles.h */
+int g_psx_island_mem_ok;       /* psx_island.h */
+
+/* The per-access conditions psx_direct_store_view / psx_native_span_ram test
+ * besides the address itself; all change only through runtime entries that
+ * drop the horizon (or host requests picked up at the next full edge). */
+static int psx_island_mem_ok_now(const CPUState *cpu) {
+    extern int g_ls_mode, g_ram_read_watch_active, g_dma_exec_depth, g_host_store_depth;
+    extern int g_psx_render_pass_active, g_psx_track_last_store;
+    extern volatile int g_ds_recording, g_card_data_write_armed;
+    extern uint32_t g_parity_trace_armed, g_debug_last_store_pc;
+    extern void (*g_overlay_flush_pending_cycles)(void);
+    extern uint32_t psx_read_word(uint32_t); extern uint16_t psx_read_half(uint32_t);
+    extern uint8_t psx_read_byte(uint32_t); extern void psx_write_word(uint32_t, uint32_t);
+    extern void psx_write_half(uint32_t, uint16_t); extern void psx_write_byte(uint32_t, uint8_t);
+    return !g_ls_mode && !g_ls_replay_active && !g_ds_recording && !g_ram_read_watch_active &&
+           !g_dma_exec_depth && !g_host_store_depth && !g_psx_render_pass_active &&
+           !g_overlay_flush_pending_cycles && !g_parity_trace_armed && !g_card_data_write_armed &&
+           !g_psx_track_last_store && g_debug_last_store_pc != 0x00001CE4u &&
+           cpu->read_word == psx_read_word && cpu->read_half == psx_read_half &&
+           cpu->read_byte == psx_read_byte && cpu->write_word == psx_write_word &&
+           cpu->write_half == psx_write_half && cpu->write_byte == psx_write_byte;
+}
 
 /* After a full edge: until the clock reaches the returned horizon, an edge
  * would do nothing (psx_block_edge_impl: no batch to publish, nothing due,
@@ -2473,8 +2495,9 @@ static void psx_edge_horizon_refresh(const CPUState *cpu) {
         return;
     }
     uint64_t h = psx_next_service_cycle;
-    if (h == 0u) { g_psx_edge_horizon = 0u; return; }
+    if (h == 0u || PSX_GCS_ACTIVE()) { g_psx_edge_horizon = 0u; return; }
     if (psx_next_cycle_sample < h) h = psx_next_cycle_sample;
+    g_psx_island_mem_ok = psx_island_mem_ok_now(cpu);
     g_psx_edge_horizon = h;
 }
 

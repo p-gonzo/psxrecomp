@@ -1199,7 +1199,11 @@ static void up_add_transfer(int x, int y, int w, int h) {
  * the event following a FLUSH names the trigger. 16 B * 64 Ki = 1 MB. */
 extern uint64_t s_frame_count;  /* defined in debug_server.c */
 
+#if defined(PSX_LEAN_HOST) && PSX_LEAN_HOST
+#define GL_COH_RING_CAP (1u << 8)    /* diagnostic; lean hosts have no GL renderer */
+#else
 #define GL_COH_RING_CAP (1u << 16)
+#endif
 static GlCohEvent s_coh_ring[GL_COH_RING_CAP];
 static uint64_t   s_coh_seq = 0;
 

@@ -698,6 +698,16 @@ uint64_t dirty_ram_text_equal_hits(void) { return text_equal_hits; }
 
 static uint8_t *text_ref_image = NULL;
 uint32_t g_psx_text_write_lo = 0, g_psx_text_write_hi = 0;
+/* Island profile (psx_island.h): set once any verified code word changes. */
+int g_psx_text_code_changed = 0;
+
+/* Guest RAM (any segment, the 8 MB window) or the scratchpad: accesses that
+ * cannot change device or interrupt state, so they keep the edge horizon. */
+static inline int psx_addr_is_ram_or_scratch(uint32_t addr) {
+    if (addr >= 0xC0000000u) return 0;
+    const uint32_t phys = addr & 0x1FFFFFFFu;
+    return phys < 0x00800000u || (phys >= 0x1F800000u && phys < 0x1F800400u);
+}
 
 /* Word-precise "known equal to the reference" bits for the text image: bit w
  * set means RAM word [lo + 4w, lo + 4w + 4) equals the reference bytes. The
@@ -745,6 +755,9 @@ static void text_equal_forget_range(uint32_t phys, uint32_t len) {
     uint32_t w0 = (lo - g_psx_text_write_lo) >> 2;
     uint32_t w1 = (hi - g_psx_text_write_lo + 3u) >> 2;
     if (w1 > text_equal_words) w1 = text_equal_words;
+    if (text_code_bits && !g_psx_text_code_changed)   /* unguarded change over code */
+        for (uint32_t w = w0; w < w1; w++)
+            if (text_code_bits[w >> 5] & (1u << (w & 31u))) { g_psx_text_code_changed = 1; break; }
     for (uint32_t w = w0; w < w1; w++) text_equal_bits[w >> 5] &= ~(1u << (w & 31u));
 }
 
@@ -901,8 +914,11 @@ static inline void text_guard_note_write(uint32_t phys, uint32_t val, int size) 
                 text_equal_bits[w >> 5] |= 1u << (w & 31u);
             else
                 text_equal_bits[w >> 5] &= ~(1u << (w & 31u));
-            if (text_code_bits[w >> 5] & (1u << (w & 31u)))
+            if (text_code_bits[w >> 5] & (1u << (w & 31u))) {
                 ++g_text_code_gen;   /* a store into verified code */
+                if (!(text_equal_bits[w >> 5] & (1u << (w & 31u))))
+                    g_psx_text_code_changed = 1;   /* it now differs */
+            }
         }
     }
 }
@@ -2152,7 +2168,7 @@ static uint32_t psx_read_word_raw(uint32_t addr);
  * exception context (ISR work replays live), never under DMA (DMA writes
  * poison the window via ds_note_dma_write instead). */
 uint32_t psx_read_word(uint32_t addr) {
-    PSX_EDGE_HORIZON_DROP();   /* may touch devices/IRQ state (psx_cycles.h) */
+    if (!psx_addr_is_ram_or_scratch(addr)) PSX_EDGE_HORIZON_DROP();   /* MMIO may touch devices/IRQ state */
     psx_memory_note_helper_width(addr, 0u, 4u);
     if (g_ls_mode == 2) return ls_read_hook(addr, 4, 0u);
     if (g_ds_recording && g_dma_exec_depth == 0 && !psx_get_in_exception())
@@ -2492,7 +2508,7 @@ static void render_pass_store(uint32_t addr, uint32_t val, uint32_t width) {
 
 static void psx_write_word_raw(uint32_t addr, uint32_t val);
 void psx_write_word(uint32_t addr, uint32_t val) {
-    PSX_EDGE_HORIZON_DROP();   /* may touch devices/IRQ state (psx_cycles.h) */
+    if (!psx_addr_is_ram_or_scratch(addr)) PSX_EDGE_HORIZON_DROP();   /* MMIO may touch devices/IRQ state */
     psx_memory_note_helper_width(addr, 1u, 4u);
     extern void (*g_overlay_flush_pending_cycles)(void);
     if (g_overlay_flush_pending_cycles) g_overlay_flush_pending_cycles();
@@ -2663,7 +2679,7 @@ static void psx_write_word_raw(uint32_t addr, uint32_t val) {
 
 static uint16_t psx_read_half_raw(uint32_t addr);
 uint16_t psx_read_half(uint32_t addr) {
-    PSX_EDGE_HORIZON_DROP();   /* may touch devices/IRQ state (psx_cycles.h) */
+    if (!psx_addr_is_ram_or_scratch(addr)) PSX_EDGE_HORIZON_DROP();   /* MMIO may touch devices/IRQ state */
     psx_memory_note_helper_width(addr, 0u, 2u);
     if (g_ls_mode == 2) return (uint16_t)ls_read_hook(addr, 2, 0u);
     if (g_ds_recording && g_dma_exec_depth == 0 && !psx_get_in_exception())
@@ -2713,7 +2729,7 @@ static uint16_t psx_read_half_raw(uint32_t addr) {
 
 static void psx_write_half_raw(uint32_t addr, uint16_t val);
 void psx_write_half(uint32_t addr, uint16_t val) {
-    PSX_EDGE_HORIZON_DROP();   /* may touch devices/IRQ state (psx_cycles.h) */
+    if (!psx_addr_is_ram_or_scratch(addr)) PSX_EDGE_HORIZON_DROP();   /* MMIO may touch devices/IRQ state */
     psx_memory_note_helper_width(addr, 1u, 2u);
     extern void (*g_overlay_flush_pending_cycles)(void);
     if (g_overlay_flush_pending_cycles) g_overlay_flush_pending_cycles();
@@ -2798,7 +2814,7 @@ static void psx_write_half_raw(uint32_t addr, uint16_t val) {
 
 static uint8_t psx_read_byte_raw(uint32_t addr);
 uint8_t psx_read_byte(uint32_t addr) {
-    PSX_EDGE_HORIZON_DROP();   /* may touch devices/IRQ state (psx_cycles.h) */
+    if (!psx_addr_is_ram_or_scratch(addr)) PSX_EDGE_HORIZON_DROP();   /* MMIO may touch devices/IRQ state */
     psx_memory_note_helper_width(addr, 0u, 1u);
     if (g_ls_mode == 2) return (uint8_t)ls_read_hook(addr, 1, 0u);
     if (g_ds_recording && g_dma_exec_depth == 0 && !psx_get_in_exception())
@@ -3080,7 +3096,7 @@ uint8_t  psx_guest_read_byte(uint32_t addr) { return psx_read_byte(addr); }
 
 static void psx_write_byte_raw(uint32_t addr, uint8_t val);
 void psx_write_byte(uint32_t addr, uint8_t val) {
-    PSX_EDGE_HORIZON_DROP();   /* may touch devices/IRQ state (psx_cycles.h) */
+    if (!psx_addr_is_ram_or_scratch(addr)) PSX_EDGE_HORIZON_DROP();   /* MMIO may touch devices/IRQ state */
     psx_memory_note_helper_width(addr, 1u, 1u);
     extern void (*g_overlay_flush_pending_cycles)(void);
     if (g_overlay_flush_pending_cycles) g_overlay_flush_pending_cycles();
