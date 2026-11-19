@@ -10670,6 +10670,15 @@ static NetplayVblankEpilogue sdl_vblank_present_body(void) {
                       : (wide_present ? PRES_PATH_WIDE : PRES_PATH_CANONICAL),
             (uint16_t)w, (uint16_t)present_h, (uint16_t)present_w);
 
+        /* A platform GPU renderer (host_present.h) may show the displayed
+         * buffer from its own VRAM copy, skipping the CPU conversion below. */
+        if (!game_view && !local_viewport_crop && !wide_present &&
+            psx_host_present_vram((int)di.display_x, (int)di.display_y,
+                                  (int)present_w, (int)present_h, di.depth24)) {
+            netplay_note_present();
+            return ep;
+        }
+
         /* OpenGL: 15-bit frames ALWAYS present straight from the authoritative
          * VRAM FBO — one deterministic path (the old per-frame FBO-vs-CPU
          * alternation caused the menu seam/jitter). 24-bit (FMV) frames and

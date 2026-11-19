@@ -32,6 +32,16 @@ typedef int (*psx_host_present_fn)(const uint32_t *argb, int w, int h,
 void psx_host_present_register(psx_host_present_fn fn);
 int  psx_host_present_frame(const uint32_t *argb, int w, int h, int pitch, int pin_43);
 
+/* A platform with its own GPU copy of VRAM (the 3DS PICA200 renderer) may
+ * show the displayed buffer straight from it, before the runtime converts
+ * the frame on the CPU. Called once per presented frame with the display
+ * rectangle in VRAM pixels (`depth24`: 24-bit MDEC display). Return 1 when
+ * shown (the caller skips its conversion and present), 0 for the normal
+ * path. */
+typedef int (*psx_host_present_vram_fn)(int x, int y, int w, int h, int depth24);
+void psx_host_present_vram_register(psx_host_present_vram_fn fn);
+int  psx_host_present_vram(int x, int y, int w, int h, int depth24);
+
 #ifdef __cplusplus
 }
 #endif

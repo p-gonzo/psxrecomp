@@ -259,6 +259,11 @@ typedef struct GpuRenderBackend {
  * backend table) after the active backend ran it. NULL members are skipped;
  * NULL tap turns it off. Draw coordinates include the draw offset. */
 void gr_set_host_tap(const GpuRenderBackend *tap);
+/* Host draw ownership: when set and it returns 1, the primitive about to be
+ * drawn belongs to a host GPU renderer (it draws into a buffer the host
+ * presents itself), so the active backend does not rasterise it. The tap
+ * still sees it. Fills, copies and uploads always reach the backend. */
+void gr_set_host_draw_owner(int (*owns)(void));
 
 enum { GR_HD_NOTE_INVALIDATE = 0, GR_HD_NOTE_TRACK_UPLOAD = 1,
        GR_HD_NOTE_BEGIN_UPLOAD = 2 /* GP0(A0) header: invalidate; payload streams */,
