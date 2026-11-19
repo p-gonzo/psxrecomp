@@ -174,7 +174,13 @@ void psx_block_edge_call(CPUState *cpu, uint32_t pc);
 #ifdef __cplusplus
 }
 #endif
-#define PSX_BLOCK_EDGE(cpu, pc) psx_block_edge_call((cpu), (pc))
+/* Edge horizon (psx_cycles.h): ordinary edges are one inline 64-bit compare;
+ * only edges at or past the horizon (or a declared wait site) call out. */
+#define PSX_BLOCK_EDGE(cpu, pc) do { \
+    if (__builtin_expect(psx_cycle_count >= g_psx_edge_horizon, 0) || \
+        PSX_OBSERVATION_WAIT_SITE(pc)) \
+        psx_block_edge_call((cpu), (pc)); \
+} while (0)
 #else
 #define PSX_BLOCK_EDGE(cpu, pc) psx_block_edge((cpu), (pc))
 #endif

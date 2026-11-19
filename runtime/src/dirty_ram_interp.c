@@ -2815,6 +2815,7 @@ static int dirty_ram_finish_dispatch(CPUState *cpu, uint32_t addr,
 }
 
 int dirty_ram_dispatch(CPUState* cpu, uint32_t addr, uint32_t stop_addr) {
+    PSX_EDGE_HORIZON_DROP();   /* interpreted code charges through cycle batches */
     extern int g_psx_dispatch_depth;
     extern void psx_fatal_halt(const char *reason);
     /* `addr` is architectural: the interpreter runs at exactly this PC, so a
@@ -4192,7 +4193,7 @@ int ls_shadow_replay_begin(void) {
     s_ls_m_kind = 0;
     s_ls_replay_done = 0;
     s_ls_shadow_owner = 2;
-    g_ls_replay_active = 1;
+    g_ls_replay_active = 1; PSX_EDGE_HORIZON_DROP();
     g_ls_mode = 2;
     return 1;
 }
@@ -4296,7 +4297,7 @@ static void ls_replay_and_compare(CPUState *cpu, uint32_t frame, uint32_t target
     uint32_t    sav_unsup_pc     = g_unsupported_pc;
     uint32_t    sav_unsup_insn   = g_unsupported_insn;
     const char *sav_unsup_reason = g_unsupported_reason;
-    g_ls_replay_active = 1;
+    g_ls_replay_active = 1; PSX_EDGE_HORIZON_DROP();
     g_ls_mode = 2;
     uint32_t pc = rep.pc;
     int cap = 512, steps = 0;
@@ -4414,7 +4415,7 @@ static void lsf_replay_and_compare(CPUState *native_post, uint32_t frame,
     uint32_t    sav_store_pc     = g_debug_last_store_pc;
     uint32_t    sav_func_addr    = g_debug_current_func_addr;
 
-    g_ls_replay_active = 1;
+    g_ls_replay_active = 1; PSX_EDGE_HORIZON_DROP();
     g_ls_mode = 2;
 
     uint32_t pc = entry_pc;

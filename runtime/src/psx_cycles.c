@@ -211,7 +211,7 @@ int g_event_step_conservative = 0;
  * timeline?") needs the production binary to run BOTH ways. */
 void psx_event_step_conservative_env_init(void) {
     const char *e = getenv("PSX_EVENT_STEP_CONSERVATIVE");
-    if (e && e[0] == '1') g_event_step_conservative = 1;
+    if (e && e[0] == '1') { g_event_step_conservative = 1; PSX_EDGE_HORIZON_DROP(); }
 }
 
 static void advance_devices(uint32_t c) {
@@ -1369,7 +1369,7 @@ int psx_cycle_freeze_begin(PsxCycleFreeze *save, uint64_t watchdog_cycles,
     s_freeze_limit = watchdog_cycles;
     s_freeze_overrun = overrun;
     g_psx_render_pass_active = 1;
-    g_psx_guest_time_frozen = 1;
+    g_psx_guest_time_frozen = 1; PSX_EDGE_HORIZON_DROP();
     psx_cycle_freeze_tick();
     return 1;
 }
@@ -1392,7 +1392,7 @@ int psx_cycle_uncharged_begin(PsxCycleFreeze *save, uint64_t budget_cycles) {
     s_freeze_overrun = 0;
     s_uncharged_active = 1;
     s_uncharged_thawed = 0;
-    g_psx_guest_time_frozen = 1;
+    g_psx_guest_time_frozen = 1; PSX_EDGE_HORIZON_DROP();
     psx_cycle_freeze_tick();
     return 1;
 }

@@ -4,6 +4,7 @@
  * Phase 2 expects MMIO abort before any trap fires.
  */
 
+#include "psx_cycles.h"   /* PSX_EDGE_HORIZON_DROP */
 #include "cpu_state.h"
 #include "psx_memory.h"
 #include "interrupts.h"
@@ -1100,6 +1101,7 @@ static int psx_change_thread_in_handler(CPUState* cpu, uint32_t target_tcb) {
 }
 
 int psx_syscall(CPUState* cpu, uint32_t code) {
+    PSX_EDGE_HORIZON_DROP();
     /*
      * PS1 BIOS SYSCALL convention:
      *   $a0 = 1: EnterCriticalSection — disable interrupts, return old SR
@@ -1252,6 +1254,7 @@ int psx_syscall(CPUState* cpu, uint32_t code) {
 }
 
 void psx_break(CPUState* cpu, uint32_t code, uint32_t pc) {
+    PSX_EDGE_HORIZON_DROP();
     char buf[128];
     snprintf(buf, sizeof(buf), "BREAK @ PC=0x%08X, code=0x%05X", pc, code);
     trap_crash(buf);

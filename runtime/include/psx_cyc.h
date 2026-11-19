@@ -67,7 +67,7 @@ static inline void psx_cyc_bb_defer_flush(void) { psx_cyc_batch_flush(); }
 static inline void psx_cyc_local_begin(uint32_t *acc) {
 #if !defined(PSX_COSIM)
     if (acc) *acc = 0;
-    g_psx_cyc_local_acc = acc;
+    g_psx_cyc_local_acc = acc; PSX_EDGE_HORIZON_DROP();
 #else
     (void)acc;
 #endif
@@ -135,7 +135,7 @@ static inline void psx_cyc_charge(uint32_t cycles) {
                             ? (uint32_t)room : (uint32_t)PSX_CYC_BATCH_SOFT);
                 }
                 if (sum < g_psx_cyc_batch_limit) {
-                    g_psx_cyc_batch = sum;
+                    g_psx_cyc_batch = sum; PSX_EDGE_HORIZON_DROP();
                     return;
                 }
             }
@@ -179,7 +179,7 @@ static inline void psx_cyc_charge(uint32_t cycles) {
         uint32_t sum = prior + cycles;
         if (sum >= prior) { /* no uint32 wrap */
             if (g_psx_cyc_bb_defer > 0) {
-                g_psx_cyc_batch = sum;
+                g_psx_cyc_batch = sum; PSX_EDGE_HORIZON_DROP();
                 return;
             }
             if (prior == 0u) {
@@ -191,7 +191,7 @@ static inline void psx_cyc_charge(uint32_t cycles) {
                         ? (uint32_t)room : (uint32_t)PSX_CYC_BATCH_SOFT);
             }
             if (sum < g_psx_cyc_batch_limit) {
-                g_psx_cyc_batch = sum;
+                g_psx_cyc_batch = sum; PSX_EDGE_HORIZON_DROP();
                 return;
             }
         }

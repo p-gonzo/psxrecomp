@@ -894,7 +894,7 @@ static int request_save_inner(int slot) {
     s_save_pending = slot;
     s_status_polls = 0;
     s_status_wait = "boundary";
-    g_psx_savestate_pending = 1;
+    g_psx_savestate_pending = 1; PSX_EDGE_HORIZON_DROP();
     s_status_last_load = 0;
     s_status_last_slot = slot;
     return 1;
@@ -922,7 +922,7 @@ static int request_load_inner(int slot) {
     s_load_pending = slot;
     s_status_polls = 0;
     s_status_wait = "boundary";
-    g_psx_savestate_pending = 1;
+    g_psx_savestate_pending = 1; PSX_EDGE_HORIZON_DROP();
     s_status_last_load = 1;
     s_status_last_slot = slot;
     return 1;
@@ -974,7 +974,7 @@ int savestate_request_load_blob_protocol(const void* data, size_t size) {
     s_load_failed = 0;
     s_load_completed = 0;
     s_load_pending = 0; /* non-negative: poll will prefer the blob */
-    g_psx_savestate_pending = 1;
+    g_psx_savestate_pending = 1; PSX_EDGE_HORIZON_DROP();
     return 1;
 }
 
@@ -1031,7 +1031,7 @@ int savestate_request_checkpoint(savestate_checkpoint_fn fn) {
     if (!fn || s_checkpoint_fn) return 0;
     s_checkpoint_fn = fn;
     s_checkpoint_deferred_logged = 0;
-    g_psx_savestate_pending = 1;
+    g_psx_savestate_pending = 1; PSX_EDGE_HORIZON_DROP();
     return 1;
 }
 

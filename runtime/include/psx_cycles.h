@@ -21,6 +21,22 @@ extern int      g_event_step_conservative;
 #if defined(PSX_OBSERVATION_TIME) && PSX_OBSERVATION_TIME
 extern int g_psx_guest_time_frozen;
 extern uint64_t psx_next_cycle_sample;
+
+/* Lean-host edge horizon (PSX_LEAN_HOST + PSX_OBSERVATION_TIME, the 3DS).
+ * A generated block edge whose clock is below it skips the out-of-line edge
+ * entirely: psx_edge_horizon_refresh (interrupts.c) sets it after each full
+ * edge only when that edge would find nothing to do until the next device
+ * deadline / observation sample; otherwise 0. Any runtime entry that may
+ * change what an edge checks (MMIO, IRQ raise, dispatch, exceptions, cycle
+ * batches, host requests) drops it to 0, so the next edge is a full one.
+ * Skipped edges are exactly those that would have done nothing. */
+#if defined(PSX_LEAN_HOST) && PSX_LEAN_HOST && \
+    defined(PSX_OBSERVATION_TIME) && PSX_OBSERVATION_TIME && !defined(PSX_OVERLAY_DLL_BUILD)
+extern uint64_t g_psx_edge_horizon;
+#define PSX_EDGE_HORIZON_DROP() ((void)(g_psx_edge_horizon = 0u))
+#else
+#define PSX_EDGE_HORIZON_DROP() ((void)0)
+#endif
 void psx_observation_sample(void);
 /* Explicit device observation (MMIO, native waits, frame/IRQ, SPU input). */
 void psx_devices_observe(void);

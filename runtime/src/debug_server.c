@@ -15414,7 +15414,7 @@ static void handle_overlay_native_event_granularity(int id, const char *json)
         send_err(id, "missing mode (conservative|normal)"); return;
     }
     int conservative = (strcmp(mode, "conservative") == 0);
-    g_event_step_conservative = conservative;
+    g_event_step_conservative = conservative; PSX_EDGE_HORIZON_DROP();
     send_fmt("{\"id\":%d,\"ok\":true,\"event_granularity\":\"%s\"}\n",
              id, conservative ? "conservative" : "normal");
 }

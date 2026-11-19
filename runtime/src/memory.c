@@ -2152,6 +2152,7 @@ static uint32_t psx_read_word_raw(uint32_t addr);
  * exception context (ISR work replays live), never under DMA (DMA writes
  * poison the window via ds_note_dma_write instead). */
 uint32_t psx_read_word(uint32_t addr) {
+    PSX_EDGE_HORIZON_DROP();   /* may touch devices/IRQ state (psx_cycles.h) */
     psx_memory_note_helper_width(addr, 0u, 4u);
     if (g_ls_mode == 2) return ls_read_hook(addr, 4, 0u);
     if (g_ds_recording && g_dma_exec_depth == 0 && !psx_get_in_exception())
@@ -2491,6 +2492,7 @@ static void render_pass_store(uint32_t addr, uint32_t val, uint32_t width) {
 
 static void psx_write_word_raw(uint32_t addr, uint32_t val);
 void psx_write_word(uint32_t addr, uint32_t val) {
+    PSX_EDGE_HORIZON_DROP();   /* may touch devices/IRQ state (psx_cycles.h) */
     psx_memory_note_helper_width(addr, 1u, 4u);
     extern void (*g_overlay_flush_pending_cycles)(void);
     if (g_overlay_flush_pending_cycles) g_overlay_flush_pending_cycles();
@@ -2661,6 +2663,7 @@ static void psx_write_word_raw(uint32_t addr, uint32_t val) {
 
 static uint16_t psx_read_half_raw(uint32_t addr);
 uint16_t psx_read_half(uint32_t addr) {
+    PSX_EDGE_HORIZON_DROP();   /* may touch devices/IRQ state (psx_cycles.h) */
     psx_memory_note_helper_width(addr, 0u, 2u);
     if (g_ls_mode == 2) return (uint16_t)ls_read_hook(addr, 2, 0u);
     if (g_ds_recording && g_dma_exec_depth == 0 && !psx_get_in_exception())
@@ -2710,6 +2713,7 @@ static uint16_t psx_read_half_raw(uint32_t addr) {
 
 static void psx_write_half_raw(uint32_t addr, uint16_t val);
 void psx_write_half(uint32_t addr, uint16_t val) {
+    PSX_EDGE_HORIZON_DROP();   /* may touch devices/IRQ state (psx_cycles.h) */
     psx_memory_note_helper_width(addr, 1u, 2u);
     extern void (*g_overlay_flush_pending_cycles)(void);
     if (g_overlay_flush_pending_cycles) g_overlay_flush_pending_cycles();
@@ -2794,6 +2798,7 @@ static void psx_write_half_raw(uint32_t addr, uint16_t val) {
 
 static uint8_t psx_read_byte_raw(uint32_t addr);
 uint8_t psx_read_byte(uint32_t addr) {
+    PSX_EDGE_HORIZON_DROP();   /* may touch devices/IRQ state (psx_cycles.h) */
     psx_memory_note_helper_width(addr, 0u, 1u);
     if (g_ls_mode == 2) return (uint8_t)ls_read_hook(addr, 1, 0u);
     if (g_ds_recording && g_dma_exec_depth == 0 && !psx_get_in_exception())
@@ -3075,6 +3080,7 @@ uint8_t  psx_guest_read_byte(uint32_t addr) { return psx_read_byte(addr); }
 
 static void psx_write_byte_raw(uint32_t addr, uint8_t val);
 void psx_write_byte(uint32_t addr, uint8_t val) {
+    PSX_EDGE_HORIZON_DROP();   /* may touch devices/IRQ state (psx_cycles.h) */
     psx_memory_note_helper_width(addr, 1u, 1u);
     extern void (*g_overlay_flush_pending_cycles)(void);
     if (g_overlay_flush_pending_cycles) g_overlay_flush_pending_cycles();

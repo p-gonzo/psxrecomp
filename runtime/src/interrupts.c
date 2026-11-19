@@ -190,6 +190,7 @@ void psx_irq_set_cause_ptr(uint32_t *p)
  * exact guest cycle. */
 void psx_irq_raise(uint32_t bit, uint32_t detail)
 {
+    PSX_EDGE_HORIZON_DROP();
     i_stat |= (1u << bit);
     psx_irq_refresh_cause_ip2();
     device_trace_note(bit, detail);
@@ -2452,9 +2453,38 @@ void psx_check_interrupts(CPUState *cpu) {
 }
 
 #if PSX_LEAN_HOST
-/* Out-of-line block edge for constrained hosts (psx_block_edge.h). */
+uint64_t g_psx_edge_horizon;   /* psx_cycles.h */
+
+/* After a full edge: until the clock reaches the returned horizon, an edge
+ * would do nothing (psx_block_edge_impl: no batch to publish, nothing due,
+ * nothing deliverable), provided nothing else changes -- which every such
+ * change point marks with PSX_EDGE_HORIZON_DROP(). Capped at the next
+ * observation sample too, so device service (which can raise interrupts or
+ * move deadlines) only ever happens at or past the horizon. */
+static void psx_edge_horizon_refresh(const CPUState *cpu) {
+    extern void (*g_overlay_flush_pending_cycles)(void);
+    if (g_psx_guest_time_frozen || g_ls_replay_active || g_event_step_conservative ||
+        psx_in_device_service || g_psx_cyc_batch ||
+        (g_psx_cyc_local_acc && *g_psx_cyc_local_acc) || g_overlay_flush_pending_cycles ||
+        psx_defer_switch_pending || g_psx_savestate_pending || psx_observation_wait_active ||
+        g_ls_suppress_record > 0 || (i_stat & i_mask) || (cpu->cop0[13] & 0x0300u) ||
+        psx_observation_delivery_pending(cpu)) {
+        g_psx_edge_horizon = 0u;
+        return;
+    }
+    uint64_t h = psx_next_service_cycle;
+    if (h == 0u) { g_psx_edge_horizon = 0u; return; }
+    if (psx_next_cycle_sample < h) h = psx_next_cycle_sample;
+    g_psx_edge_horizon = h;
+}
+
+/* Out-of-line block edge for constrained hosts (psx_block_edge.h). An edge
+ * that unwinds (exception delivery) leaves the horizon at or below the
+ * clock, so the next edge is a full one and refreshes it. */
 void psx_block_edge_call(CPUState *cpu, uint32_t pc) {
+    PSX_EDGE_HORIZON_DROP();
     psx_block_edge(cpu, pc);
+    psx_edge_horizon_refresh(cpu);
 }
 #endif
 #endif
