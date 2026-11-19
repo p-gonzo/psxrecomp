@@ -971,7 +971,19 @@ int dirty_ram_text_native_ok(uint32_t phys) {
  * not runtime-dirty are stored, so pages loaded by DMA or a loader keep the
  * full check; a page turning dirty bumps the generation. */
 #define TEXT_VERDICT_CACHE 4096u
-static struct { const uint32_t *ranges; uint32_t count, gen; } s_text_verdict[TEXT_VERDICT_CACHE];
+static struct { const uint32_t *ranges; uint32_t count, gen; uint8_t ok; } s_text_verdict[TEXT_VERDICT_CACHE];
+
+/* Mark the words of [phys, phys + len) as watched code: a guarded store into
+ * any of them bumps g_text_code_gen (text_guard_note_write). Used for ranges
+ * that failed their compare, so a cached "does not match" verdict is dropped
+ * as soon as those bytes change. */
+static void text_code_watch(uint32_t phys, uint32_t len) {
+    if (!text_code_bits || len == 0 || phys < g_psx_text_write_lo) return;
+    uint32_t w0 = (phys - g_psx_text_write_lo) >> 2;
+    uint32_t w1 = (phys + len - g_psx_text_write_lo + 3u) >> 2;
+    if (w1 > text_equal_words) w1 = text_equal_words;
+    for (uint32_t w = w0; w < w1; w++) text_code_bits[w >> 5] |= 1u << (w & 31u);
+}
 static uint64_t text_verdict_hits;
 uint64_t dirty_ram_text_verdict_hits(void) { return text_verdict_hits; }
 
@@ -985,7 +997,8 @@ int dirty_ram_text_native_ok_ranges_from(const uint32_t *lo_len_pairs,
     if (text_equal_enabled() && s_text_verdict[slot].ranges == lo_len_pairs &&
         s_text_verdict[slot].count == count && s_text_verdict[slot].gen == g_text_code_gen) {
         ++text_verdict_hits;
-        return 1;
+        if (!s_text_verdict[slot].ok) g_text_native_blocked++;
+        return s_text_verdict[slot].ok;
     }
     const uint32_t gen_at_start = g_text_code_gen;
     int cacheable = 1;   /* stays 1 while no page of the set is runtime-dirty */
@@ -1064,6 +1077,19 @@ int dirty_ram_text_native_ok_ranges_from(const uint32_t *lo_len_pairs,
             /* Do not sticky-poison the page. A continuation on the same page
              * may still match its clipped ranges. */
             g_text_native_blocked++;
+            /* Cache the "does not match" verdict too (the BIOS shell runs from
+             * RAM over the game's static code addresses and fails this check
+             * ~20,000 times a frame during the boot logo). Watching the range
+             * makes any store into it drop the verdict; dirty-page loads and
+             * restores already bump the generation. A stale negative could
+             * only send a call down the slower path, which is still correct. */
+            text_code_watch(phys, len);
+            if (g_text_code_gen == gen_at_start && text_equal_enabled()) {
+                s_text_verdict[slot].ranges = lo_len_pairs;
+                s_text_verdict[slot].count = count;
+                s_text_verdict[slot].gen = gen_at_start;
+                s_text_verdict[slot].ok = 0;
+            }
             return 0;
         }
         text_equal_note_verified(phys, len);
@@ -1076,6 +1102,7 @@ int dirty_ram_text_native_ok_ranges_from(const uint32_t *lo_len_pairs,
         s_text_verdict[slot].ranges = lo_len_pairs;
         s_text_verdict[slot].count = count;
         s_text_verdict[slot].gen = gen_at_start;
+        s_text_verdict[slot].ok = 1;
     }
     return 1;
 }

@@ -20361,10 +20361,17 @@ int main(int argc, char** argv) {
                     "overlay capture path exceeds runtime limit");
             }
         }
+#if defined(__3DS__)
+        /* Captures feed an offline compiler on a PC; the 3DS can never use
+         * them, and writing them costs SD-card I/O during play. */
+        overlay_capture_set_enabled(0);
+        std::fprintf(stdout, "psxrecomp: overlay capture store off (no compiler on this host)\n");
+#else
         overlay_capture_set_enabled(1);
         std::fprintf(stdout,
             "psxrecomp: additive overlay capture store = %s (+ .d history)\n",
             captures_path.string().c_str());
+#endif
         std::string capture_persist_dir;
         if (deferred_overlay_capture_history &&
             !deferred_overlay_capture_persist_dir.empty()) {
